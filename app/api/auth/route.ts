@@ -72,39 +72,4 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Login
-export async function PUT(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { username, password } = body;
-
-    if (!username || !password) {
-      return NextResponse.json({ error: 'Username and password are required' }, { status: 400 });
-    }
-
-    // Find user by username
-    const user = db.prepare('SELECT id, username, password_hash FROM users WHERE username = ?').get(username.trim()) as {
-      id: number;
-      username: string;
-      password_hash: string;
-    } | undefined;
-
-    if (!user) {
-      return NextResponse.json({ error: 'Tên đăng nhập hoặc mật khẩu không đúng' }, { status: 401 });
-    }
-
-    // Verify password
-    if (!verifyPassword(password, user.password_hash)) {
-      return NextResponse.json({ error: 'Tên đăng nhập hoặc mật khẩu không đúng' }, { status: 401 });
-    }
-
-    return NextResponse.json({ 
-      success: true,
-      id: user.id,
-      username: user.username
-    });
-  } catch (error) {
-    return NextResponse.json({ error: 'Failed to login' }, { status: 500 });
-  }
-}
 

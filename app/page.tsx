@@ -43,17 +43,30 @@ export default function Home() {
 
   const handleLogin = async (username: string, password: string): Promise<boolean> => {
     try {
-      const response = await fetch('/api/auth', {
-        method: 'PUT',
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ username, password }),
       });
 
+      if (!response.ok) {
+        // Try to parse error message
+        let errorMessage = 'Đăng nhập thất bại';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          // If response is not JSON, use status text
+          errorMessage = response.statusText || errorMessage;
+        }
+        throw new Error(errorMessage);
+      }
+
       const data = await response.json();
 
-      if (response.ok && data.success) {
+      if (data.success) {
         setIsAuthenticated(true);
         return true;
       } else {
@@ -75,9 +88,22 @@ export default function Home() {
         body: JSON.stringify({ username, password }),
       });
 
+      if (!response.ok) {
+        // Try to parse error message
+        let errorMessage = 'Đăng ký thất bại';
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          // If response is not JSON, use status text
+          errorMessage = response.statusText || errorMessage;
+        }
+        throw new Error(errorMessage);
+      }
+
       const data = await response.json();
 
-      if (response.ok && data.success) {
+      if (data.success) {
         // After successful registration, automatically login
         setIsAuthenticated(true);
         return true;
