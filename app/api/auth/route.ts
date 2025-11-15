@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
 import crypto from 'crypto';
 
+export const dynamic = 'force-dynamic';
+
 // Simple password hashing function
 function hashPassword(password: string): string {
   return crypto.createHash('sha256').update(password).digest('hex');
@@ -21,8 +23,12 @@ export async function GET(request: NextRequest) {
       exists: !!user,
       username: user?.username || null
     });
-  } catch (error) {
-    return NextResponse.json({ error: 'Failed to check user' }, { status: 500 });
+  } catch (error: any) {
+    console.error('GET /api/auth error:', error);
+    return NextResponse.json({ 
+      error: 'Failed to check user',
+      details: error?.message || 'Unknown error'
+    }, { status: 500 });
   }
 }
 
@@ -65,10 +71,14 @@ export async function POST(request: NextRequest) {
       username: username.trim()
     });
   } catch (error: any) {
+    console.error('POST /api/auth error:', error);
     if (error.message?.includes('UNIQUE constraint')) {
       return NextResponse.json({ error: 'Tài khoản đã tồn tại' }, { status: 400 });
     }
-    return NextResponse.json({ error: 'Failed to create user' }, { status: 500 });
+    return NextResponse.json({ 
+      error: 'Failed to create user',
+      details: error?.message || 'Unknown error'
+    }, { status: 500 });
   }
 }
 

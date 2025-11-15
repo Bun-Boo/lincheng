@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import db from '@/lib/db';
 import crypto from 'crypto';
 
+export const dynamic = 'force-dynamic';
+
 // Simple password hashing function
 function hashPassword(password: string): string {
   return crypto.createHash('sha256').update(password).digest('hex');
@@ -43,9 +45,12 @@ export async function POST(request: NextRequest) {
       id: user.id,
       username: user.username
     });
-  } catch (error) {
-    console.error('Login error:', error);
-    return NextResponse.json({ error: 'Failed to login' }, { status: 500 });
+  } catch (error: any) {
+    console.error('POST /api/auth/login error:', error);
+    return NextResponse.json({ 
+      error: 'Failed to login',
+      details: error?.message || 'Unknown error'
+    }, { status: 500 });
   }
 }
 

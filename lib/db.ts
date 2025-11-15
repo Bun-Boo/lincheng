@@ -2,15 +2,35 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 
-const dbPath = path.join(process.cwd(), 'data', 'dashboard.db');
-const dbDir = path.dirname(dbPath);
+// Use /tmp on Vercel (serverless), or data/ directory locally
+const isVercel = process.env.VERCEL === '1';
+const dbDir = isVercel ? '/tmp' : path.join(process.cwd(), 'data');
+const dbPath = path.join(dbDir, 'dashboard.db');
 
 // Ensure data directory exists
 if (!fs.existsSync(dbDir)) {
-  fs.mkdirSync(dbDir, { recursive: true });
+  try {
+    fs.mkdirSync(dbDir, { recursive: true });
+  } catch (error) {
+    console.error('Failed to create db directory:', error);
+  }
 }
 
-const db = new Database(dbPath);
+let db: Database.Database;
+try {
+  db = new Database(dbPath);
+  console.log('Database initialized at:', dbPath);
+} catch (error: any) {
+  console.error('Failed to initialize database at', dbPath, ':', error);
+  // Fallback: try in-memory database if file system fails
+  try {
+    db = new Database(':memory:');
+    console.warn('Using in-memory database as fallback');
+  } catch (fallbackError) {
+    console.error('Failed to create in-memory database:', fallbackError);
+    throw fallbackError;
+  }
+}
 
 // Enable foreign keys
 db.pragma('foreign_keys = ON');
