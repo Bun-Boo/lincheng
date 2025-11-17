@@ -37,10 +37,10 @@ export default function OrderTable({
   const getStatusColor = (status: OrderStatus) => {
     const colors: { [key in OrderStatus]: string } = {
       'đã lên đơn': 'bg-pink-100 text-pink-800',
-      'chưa lên đơn': 'bg-pink-50 text-pink-700',
-      'nhập kho Trung': 'bg-rose-100 text-rose-800',
-      'Shop nhận hàng': 'bg-pink-200 text-pink-900',
-      'Giao khách': 'bg-pink-300 text-pink-900',
+      'chưa lên đơn': 'bg-gray-100 text-gray-800',
+      'nhập kho Trung': 'bg-yellow-100 text-yellow-800',
+      'Shop nhận hàng': 'bg-blue-100 text-blue-800',
+      'Giao khách': 'bg-green-100 text-green-800',
       'Huỷ đơn': 'bg-red-100 text-red-800',
     };
     return colors[status] || 'bg-pink-50 text-pink-700';

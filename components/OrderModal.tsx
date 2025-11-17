@@ -188,11 +188,11 @@ export default function OrderModal({ isOpen, onClose, onSave, order, type }: Ord
     setFormData(prev => ({ ...prev, remaining_amount: Math.max(0, remaining) }));
   }, [formData.reported_amount, formData.deposit_amount, formData.shipping_fee]);
 
-  // Auto calculate profit - always calculate
+  // Auto calculate profit - nếu trạng thái là "Huỷ đơn" thì lãi = 0
   useEffect(() => {
-    const profit = formData.reported_amount - formData.capital;
+    const profit = formData.status === 'Huỷ đơn' ? 0 : formData.reported_amount - formData.capital;
     setFormData(prev => ({ ...prev, profit }));
-  }, [formData.reported_amount, formData.capital]);
+  }, [formData.reported_amount, formData.capital, formData.status]);
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

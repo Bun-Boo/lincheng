@@ -90,7 +90,9 @@ export async function POST(request: NextRequest) {
 
     const reportedAmount = body.reported_amount || 0;
     const capital = body.capital || 0;
-    const profit = reportedAmount - capital;
+    const status = body.status || 'chưa lên đơn';
+    // Nếu trạng thái là "Huỷ đơn" thì lãi = 0
+    const profit = status === 'Huỷ đơn' ? 0 : reportedAmount - capital;
     const shippingFee = body.shipping_fee || 0;
 
     const orderData = {
@@ -138,7 +140,9 @@ export async function PUT(request: NextRequest) {
 
     const reportedAmount = updateData.reported_amount || 0;
     const capital = updateData.capital || 0;
-    const profit = reportedAmount - capital;
+    const status = updateData.status || 'chưa lên đơn';
+    // Nếu trạng thái là "Huỷ đơn" thì lãi = 0
+    const profit = status === 'Huỷ đơn' ? 0 : reportedAmount - capital;
     const shippingFee = updateData.shipping_fee || 0;
 
     const updatePayload = {
