@@ -1,6 +1,6 @@
 # Dashboard Quản Lý Đơn Hàng
 
-Ứng dụng web mobile-first để quản lý đơn hàng được xây dựng với Next.js 14, TypeScript, và SQLite.
+Ứng dụng web mobile-first để quản lý đơn hàng được xây dựng với Next.js 14, TypeScript, và Supabase (PostgreSQL).
 
 ## Tính năng
 
@@ -40,7 +40,7 @@
 - ✅ Thêm, sửa, xóa đơn hàng
 - ✅ Ẩn/hiện cột tùy ý
 - ✅ Responsive mobile-first design
-- ✅ SQLite database tích hợp
+- ✅ Supabase (PostgreSQL) database
 
 ## Cài đặt
 
@@ -49,12 +49,21 @@
 npm install
 ```
 
-2. Chạy development server:
+2. Cấu hình Supabase:
+   - Tạo file `.env.local` với các biến môi trường (theo [guide chính thức](https://supabase.com/docs/guides/getting-started/quickstarts/nextjs)):
+     ```env
+     NEXT_PUBLIC_SUPABASE_URL=your-project-url
+     NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+     ```
+   - Lấy các giá trị từ Supabase Dashboard > Project Settings > API
+   - Chạy SQL script trong `supabase-schema.sql` trong Supabase SQL Editor
+
+3. Chạy development server:
 ```bash
 npm run dev
 ```
 
-3. Mở trình duyệt tại [http://localhost:3000](http://localhost:3000)
+4. Mở trình duyệt tại [http://localhost:3000](http://localhost:3000)
 
 ## Cấu trúc dự án
 
@@ -76,18 +85,21 @@ trang/
 │   ├── OrderModal.tsx            # Modal thêm/sửa đơn hàng
 │   └── OrderTable.tsx            # Bảng hiển thị đơn hàng
 ├── lib/
-│   └── db.ts                     # Cấu hình SQLite
+│   └── supabase.ts               # Supabase client config (legacy)
+├── utils/
+│   └── supabase/
+│       ├── server.ts             # Supabase server client (theo guide chính thức)
+│       └── client.ts             # Supabase browser client
 ├── types/
 │   └── index.ts                  # TypeScript types
-└── data/
-    └── dashboard.db              # SQLite database (tự động tạo)
+└── .env.local                    # Environment variables (tạo file này)
 ```
 
 ## Database
 
-Database SQLite được tự động tạo khi ứng dụng chạy lần đầu. File database nằm tại `data/dashboard.db`.
+Ứng dụng sử dụng Supabase (PostgreSQL) để lưu trữ dữ liệu. Tables sẽ được tự động tạo khi chạy SQL script.
 
-### Schema
+### Tables
 
 **orders_tab1:**
 - id, stt, product_image, buyer_name, buyer_phone, buyer_address
@@ -99,18 +111,27 @@ Database SQLite được tự động tạo khi ứng dụng chạy lần đầu
 - order_code, reported_amount, capital, profit
 - status, priority, created_at
 
+**customers:**
+- id, name, phone, address, created_at
+
+**users:**
+- id, username, password_hash, created_at
+
 ## Công nghệ sử dụng
 
 - **Next.js 14** - React framework
 - **TypeScript** - Type safety
 - **Tailwind CSS** - Styling
-- **SQLite (better-sqlite3)** - Database
+- **Supabase (PostgreSQL)** - Database
 - **Lucide React** - Icons
 
 ## Lưu ý
 
-- Database được tạo tự động khi chạy ứng dụng lần đầu
+- Cần cấu hình Supabase (xem [SUPABASE_SETUP.md](./SUPABASE_SETUP.md))
+- Set các biến môi trường trong `.env.local`: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (theo [guide chính thức](https://supabase.com/docs/guides/getting-started/quickstarts/nextjs))
+- Chạy SQL script trong `supabase-schema.sql` trong Supabase SQL Editor để tạo tables
 - STT tự động tăng dựa trên số lượng bản ghi hiện có
 - Tất cả các cột có thể ẩn/hiện thông qua nút "Hiển thị cột"
 - Ứng dụng được thiết kế mobile-first, responsive trên mọi thiết bị
+- Tất cả database operations chạy qua Supabase client (theo [guide chính thức](https://supabase.com/docs/guides/getting-started/quickstarts/nextjs))
 

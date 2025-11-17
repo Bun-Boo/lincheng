@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import db from '@/lib/db';
+import { createClient } from '@/utils/supabase/server';
 import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
@@ -17,11 +17,25 @@ function verifyPassword(password: string, hash: string): boolean {
 // Check if user exists
 export async function GET(request: NextRequest) {
   try {
-    const user = db.prepare('SELECT id, username FROM users LIMIT 1').get() as { id: number; username: string } | undefined;
+    const supabase = await createClient();
+    
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, username')
+      .limit(1)
+      .maybeSingle();
+
+    if (error && error.code !== 'PGRST116') {
+      console.error('Supabase error:', error);
+      return NextResponse.json({ 
+        error: 'Failed to check user',
+        details: error?.message || 'Unknown error'
+      }, { status: 500 });
+    }
     
     return NextResponse.json({ 
-      exists: !!user,
-      username: user?.username || null
+      exists: !!data,
+      username: data?.username || null
     });
   } catch (error: any) {
     console.error('GET /api/auth error:', error);
@@ -35,6 +49,7 @@ export async function GET(request: NextRequest) {
 // Register new user (only if no user exists)
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createClient();
     const body = await request.json();
     const { username, password } = body;
 
@@ -43,7 +58,12 @@ export async function POST(request: NextRequest) {
     }
 
     // Check if user already exists
-    const existingUser = db.prepare('SELECT id FROM users LIMIT 1').get();
+    const { data: existingUser } = await supabase
+      .from('users')
+      .select('id')
+      .limit(1)
+      .maybeSingle();
+
     if (existingUser) {
       return NextResponse.json({ error: 'Tài khoản đã tồn tại. Chỉ được có 1 tài khoản duy nhất.' }, { status: 400 });
     }
@@ -60,26 +80,36 @@ export async function POST(request: NextRequest) {
     // Hash password and create user
     const passwordHash = hashPassword(password);
     
-    const result = db.prepare(`
-      INSERT INTO users (username, password_hash)
-      VALUES (?, ?)
-    `).run(username.trim(), passwordHash);
+    const { data, error } = await supabase
+      .from('users')
+      .insert({
+        username: username.trim(),
+        password_hash: passwordHash,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Supabase error:', error);
+      if (error.code === '23505' || error.message?.includes('UNIQUE') || error.message?.includes('duplicate')) {
+        return NextResponse.json({ error: 'Tài khoản đã tồn tại' }, { status: 400 });
+      }
+      return NextResponse.json({ 
+        error: 'Failed to create user',
+        details: error?.message || 'Unknown error'
+      }, { status: 500 });
+    }
 
     return NextResponse.json({ 
       success: true,
-      id: result.lastInsertRowid,
-      username: username.trim()
+      id: data.id,
+      username: data.username
     });
   } catch (error: any) {
     console.error('POST /api/auth error:', error);
-    if (error.message?.includes('UNIQUE constraint')) {
-      return NextResponse.json({ error: 'Tài khoản đã tồn tại' }, { status: 400 });
-    }
     return NextResponse.json({ 
       error: 'Failed to create user',
       details: error?.message || 'Unknown error'
     }, { status: 500 });
   }
 }
-
-

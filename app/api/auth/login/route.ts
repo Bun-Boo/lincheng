@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import db from '@/lib/db';
+import { createClient } from '@/utils/supabase/server';
 import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
@@ -17,6 +17,7 @@ function verifyPassword(password: string, hash: string): boolean {
 // Login
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createClient();
     const body = await request.json();
     const { username, password } = body;
 
@@ -25,11 +26,19 @@ export async function POST(request: NextRequest) {
     }
 
     // Find user by username
-    const user = db.prepare('SELECT id, username, password_hash FROM users WHERE username = ?').get(username.trim()) as {
-      id: number;
-      username: string;
-      password_hash: string;
-    } | undefined;
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('id, username, password_hash')
+      .eq('username', username.trim())
+      .maybeSingle();
+
+    if (error) {
+      console.error('Supabase error:', error);
+      return NextResponse.json({ 
+        error: 'Failed to login',
+        details: error?.message || 'Unknown error'
+      }, { status: 500 });
+    }
 
     if (!user) {
       return NextResponse.json({ error: 'Tên đăng nhập hoặc mật khẩu không đúng' }, { status: 401 });
@@ -53,4 +62,3 @@ export async function POST(request: NextRequest) {
     }, { status: 500 });
   }
 }
-

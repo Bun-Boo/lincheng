@@ -1,121 +1,135 @@
 import { NextRequest, NextResponse } from 'next/server';
-import db from '@/lib/db';
+import { createClient } from '@/utils/supabase/server';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
+    const supabase = await createClient();
     const searchParams = request.nextUrl.searchParams;
     const period = searchParams.get('period') || 'all'; // all, day, week, month, custom
     const startDate = searchParams.get('startDate') || '';
     const endDate = searchParams.get('endDate') || '';
 
     // Build date filter
-    let dateFilter = '';
-    const dateParams: string[] = [];
+    let tab1Query = supabase.from('orders_tab1').select('*');
+    let tab2Query = supabase.from('orders_tab2').select('*');
 
     if (period === 'day') {
       const today = new Date().toISOString().split('T')[0];
-      dateFilter = "AND DATE(created_at) = ?";
-      dateParams.push(today);
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrowStr = tomorrow.toISOString().split('T')[0];
+      tab1Query = tab1Query.gte('created_at', today).lt('created_at', tomorrowStr);
+      tab2Query = tab2Query.gte('created_at', today).lt('created_at', tomorrowStr);
     } else if (period === 'week') {
       const weekAgo = new Date();
       weekAgo.setDate(weekAgo.getDate() - 7);
-      dateFilter = "AND created_at >= ?";
-      dateParams.push(weekAgo.toISOString());
+      tab1Query = tab1Query.gte('created_at', weekAgo.toISOString());
+      tab2Query = tab2Query.gte('created_at', weekAgo.toISOString());
     } else if (period === 'month') {
       const monthAgo = new Date();
       monthAgo.setMonth(monthAgo.getMonth() - 1);
-      dateFilter = "AND created_at >= ?";
-      dateParams.push(monthAgo.toISOString());
+      tab1Query = tab1Query.gte('created_at', monthAgo.toISOString());
+      tab2Query = tab2Query.gte('created_at', monthAgo.toISOString());
     } else if (period === 'custom' && startDate && endDate) {
-      dateFilter = "AND DATE(created_at) >= ? AND DATE(created_at) <= ?";
-      dateParams.push(startDate, endDate);
+      const endDatePlusOne = new Date(endDate);
+      endDatePlusOne.setDate(endDatePlusOne.getDate() + 1);
+      tab1Query = tab1Query.gte('created_at', startDate).lt('created_at', endDatePlusOne.toISOString().split('T')[0]);
+      tab2Query = tab2Query.gte('created_at', startDate).lt('created_at', endDatePlusOne.toISOString().split('T')[0]);
     }
-    // Tab 1 Statistics
-    const tab1StatsQuery = `
-      SELECT 
-        status,
-        COUNT(*) as count_by_status
-      FROM orders_tab1
-      WHERE 1=1 ${dateFilter}
-      GROUP BY status
-    `;
-    const tab1Stats = dateParams.length > 0 
-      ? db.prepare(tab1StatsQuery).all(...dateParams)
-      : db.prepare(tab1StatsQuery).all();
 
-    const tab1TotalQuery = `
-      SELECT 
-        COUNT(*) as total,
-        COALESCE(SUM(reported_amount), 0) as total_reported,
-        COALESCE(SUM(deposit_amount), 0) as total_deposit,
-        COALESCE(SUM(remaining_amount), 0) as total_remaining,
-        COALESCE(SUM(quantity), 0) as total_quantity
-      FROM orders_tab1
-      WHERE 1=1 ${dateFilter}
-    `;
-    const tab1Total = dateParams.length > 0
-      ? db.prepare(tab1TotalQuery).get(...dateParams) as any
-      : db.prepare(tab1TotalQuery).get() as any;
+    // Fetch all data
+    const [tab1Result, tab2Result] = await Promise.all([
+      tab1Query,
+      tab2Query,
+    ]);
 
-    // Tab 2 Statistics
-    const tab2StatsQuery = `
-      SELECT 
-        status,
-        COUNT(*) as count_by_status
-      FROM orders_tab2
-      WHERE 1=1 ${dateFilter}
-      GROUP BY status
-    `;
-    const tab2Stats = dateParams.length > 0
-      ? db.prepare(tab2StatsQuery).all(...dateParams)
-      : db.prepare(tab2StatsQuery).all();
+    if (tab1Result.error) {
+      console.error('Tab1 error:', tab1Result.error);
+      return NextResponse.json({ error: 'Failed to fetch statistics' }, { status: 500 });
+    }
 
-    const tab2TotalQuery = `
-      SELECT 
-        COUNT(*) as total,
-        COALESCE(SUM(capital), 0) as total_capital,
-        COALESCE(SUM(profit), 0) as total_profit
-      FROM orders_tab2
-      WHERE 1=1 ${dateFilter}
-    `;
-    const tab2Total = dateParams.length > 0
-      ? db.prepare(tab2TotalQuery).get(...dateParams) as any
-      : db.prepare(tab2TotalQuery).get() as any;
+    if (tab2Result.error) {
+      console.error('Tab2 error:', tab2Result.error);
+      return NextResponse.json({ error: 'Failed to fetch statistics' }, { status: 500 });
+    }
 
-    // Count unique customers by phone
-    // If date filter is applied, count from orders. Otherwise, count from customers table
+    const tab1Data = tab1Result.data || [];
+    const tab2Data = tab2Result.data || [];
+
+    // Calculate Tab 1 statistics
+    const tab1Stats: Record<string, number> = {};
+    tab1Data.forEach((order: any) => {
+      tab1Stats[order.status] = (tab1Stats[order.status] || 0) + 1;
+    });
+    const tab1StatsArray = Object.entries(tab1Stats).map(([status, count]) => ({
+      status,
+      count_by_status: count,
+    }));
+
+    const tab1Total = {
+      total: tab1Data.length,
+      total_reported: tab1Data.reduce((sum: number, o: any) => sum + (o.reported_amount || 0), 0),
+      total_deposit: tab1Data.reduce((sum: number, o: any) => sum + (o.deposit_amount || 0), 0),
+      total_remaining: tab1Data.reduce((sum: number, o: any) => sum + (o.remaining_amount || 0), 0),
+      total_quantity: tab1Data.reduce((sum: number, o: any) => sum + (o.quantity || 0), 0),
+    };
+
+    // Calculate Tab 2 statistics
+    const tab2Stats: Record<string, number> = {};
+    tab2Data.forEach((order: any) => {
+      tab2Stats[order.status] = (tab2Stats[order.status] || 0) + 1;
+    });
+    const tab2StatsArray = Object.entries(tab2Stats).map(([status, count]) => ({
+      status,
+      count_by_status: count,
+    }));
+
+    const tab2Total = {
+      total: tab2Data.length,
+      total_capital: tab2Data.reduce((sum: number, o: any) => sum + (o.capital || 0), 0),
+      total_profit: tab2Data.reduce((sum: number, o: any) => sum + (o.profit || 0), 0),
+    };
+
+    // Count unique customers
     let uniqueCustomers = 0;
     try {
-      if (dateFilter) {
-        // When date filter is applied, count unique phones from orders in that period
-        const tab1Phones = db.prepare(`SELECT DISTINCT buyer_phone FROM orders_tab1 WHERE buyer_phone IS NOT NULL AND buyer_phone != '' ${dateFilter}`).all(...dateParams) as any[];
-        const tab2Phones = db.prepare(`SELECT DISTINCT buyer_phone FROM orders_tab2 WHERE buyer_phone IS NOT NULL AND buyer_phone != '' ${dateFilter}`).all(...dateParams) as any[];
-        
-        const allPhones = new Set([
-          ...tab1Phones.map(p => p.buyer_phone?.trim()).filter(p => p),
-          ...tab2Phones.map(p => p.buyer_phone?.trim()).filter(p => p)
-        ]);
+      if (period !== 'all') {
+        // When date filter is applied, count unique phones from orders
+        const tab1Phones = tab1Data
+          .map((o: any) => o.buyer_phone?.trim())
+          .filter((p: string) => p);
+        const tab2Phones = tab2Data
+          .map((o: any) => o.buyer_phone?.trim())
+          .filter((p: string) => p);
+        const allPhones = new Set([...tab1Phones, ...tab2Phones]);
         uniqueCustomers = allPhones.size;
       } else {
-        // When no date filter, count from customers table (more accurate)
-        const customersQuery = `
-          SELECT COUNT(DISTINCT phone) as unique_count
-          FROM customers
-          WHERE phone IS NOT NULL AND phone != ''
-        `;
-        const customersResult = db.prepare(customersQuery).get() as any;
-        uniqueCustomers = customersResult?.unique_count || 0;
-        
+        // When no date filter, count from customers table
+        const { data: customersData } = await supabase
+          .from('customers')
+          .select('phone')
+          .not('phone', 'is', null)
+          .neq('phone', '');
+
+        if (customersData && customersData.length > 0) {
+          const uniquePhones = new Set(
+            customersData
+              .map((c: any) => c.phone?.trim())
+              .filter((p: string) => p)
+          );
+          uniqueCustomers = uniquePhones.size;
+        }
+
         // Fallback to orders if customers table is empty
         if (uniqueCustomers === 0) {
-          const tab1Phones = db.prepare(`SELECT DISTINCT buyer_phone FROM orders_tab1 WHERE buyer_phone IS NOT NULL AND buyer_phone != ''`).all() as any[];
-          const tab2Phones = db.prepare(`SELECT DISTINCT buyer_phone FROM orders_tab2 WHERE buyer_phone IS NOT NULL AND buyer_phone != ''`).all() as any[];
+          const { data: allTab1Data } = await supabase.from('orders_tab1').select('buyer_phone');
+          const { data: allTab2Data } = await supabase.from('orders_tab2').select('buyer_phone');
           
           const allPhones = new Set([
-            ...tab1Phones.map(p => p.buyer_phone?.trim()).filter(p => p),
-            ...tab2Phones.map(p => p.buyer_phone?.trim()).filter(p => p)
+            ...(allTab1Data || []).map((o: any) => o.buyer_phone?.trim()).filter((p: string) => p),
+            ...(allTab2Data || []).map((o: any) => o.buyer_phone?.trim()).filter((p: string) => p),
           ]);
           uniqueCustomers = allPhones.size;
         }
@@ -127,16 +141,16 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       tab1: {
         total: tab1Total,
-        byStatus: tab1Stats,
+        byStatus: tab1StatsArray,
       },
       tab2: {
         total: tab2Total,
-        byStatus: tab2Stats,
+        byStatus: tab2StatsArray,
       },
       uniqueCustomers: uniqueCustomers,
     });
   } catch (error) {
+    console.error('GET /api/statistics error:', error);
     return NextResponse.json({ error: 'Failed to fetch statistics' }, { status: 500 });
   }
 }
-

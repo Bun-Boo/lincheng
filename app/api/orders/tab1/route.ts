@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import db from '@/lib/db';
+import { createClient } from '@/utils/supabase/server';
 import { OrderTab1 } from '@/types';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
+    const supabase = await createClient();
     const searchParams = request.nextUrl.searchParams;
     const search = searchParams.get('search') || '';
     const status = searchParams.get('status') || '';
@@ -14,72 +15,85 @@ export async function GET(request: NextRequest) {
     const startDate = searchParams.get('startDate') || '';
     const endDate = searchParams.get('endDate') || '';
 
-    let query = 'SELECT * FROM orders_tab1 WHERE 1=1';
-    const params: any[] = [];
+    let query = supabase
+      .from('orders_tab1')
+      .select('*')
+      .order('stt', { ascending: true });
 
+    // Search filter (LIKE queries)
     if (search) {
-      query += ` AND (
-        buyer_name LIKE ? OR 
-        order_code LIKE ? OR 
-        buyer_phone LIKE ? OR
-        buyer_address LIKE ?
-      )`;
-      const searchTerm = `%${search}%`;
-      params.push(searchTerm, searchTerm, searchTerm, searchTerm);
+      const searchPattern = `%${search}%`;
+      query = query.or(
+        `buyer_name.ilike.${searchPattern},order_code.ilike.${searchPattern},buyer_phone.ilike.${searchPattern},buyer_address.ilike.${searchPattern}`
+      );
     }
 
+    // Status filter
     if (status) {
-      query += ' AND status = ?';
-      params.push(status);
+      query = query.eq('status', status);
     }
 
+    // Priority filter
     if (priority) {
-      query += ' AND priority = ?';
-      params.push(priority);
+      query = query.eq('priority', priority);
     }
 
     // Date filter
     if (period === 'day') {
       const today = new Date().toISOString().split('T')[0];
-      query += ' AND DATE(created_at) = ?';
-      params.push(today);
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrowStr = tomorrow.toISOString().split('T')[0];
+      query = query.gte('created_at', today).lt('created_at', tomorrowStr);
     } else if (period === 'week') {
       const weekAgo = new Date();
       weekAgo.setDate(weekAgo.getDate() - 7);
-      query += ' AND created_at >= ?';
-      params.push(weekAgo.toISOString());
+      query = query.gte('created_at', weekAgo.toISOString());
     } else if (period === 'month') {
-      // Current month from day 1
       const now = new Date();
       const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-      query += ' AND DATE(created_at) >= ?';
-      params.push(firstDay.toISOString().split('T')[0]);
+      query = query.gte('created_at', firstDay.toISOString());
     } else if (period === 'custom' && startDate && endDate) {
-      query += ' AND DATE(created_at) >= ? AND DATE(created_at) <= ?';
-      params.push(startDate, endDate);
+      const endDatePlusOne = new Date(endDate);
+      endDatePlusOne.setDate(endDatePlusOne.getDate() + 1);
+      query = query.gte('created_at', startDate).lt('created_at', endDatePlusOne.toISOString().split('T')[0]);
     }
 
-    query += ' ORDER BY stt ASC';
+    const { data, error } = await query;
 
-    const orders = db.prepare(query).all(...params) as OrderTab1[];
-    return NextResponse.json(orders);
+    if (error) {
+      console.error('Supabase error:', error);
+      return NextResponse.json({ error: 'Failed to fetch orders' }, { status: 500 });
+    }
+
+    return NextResponse.json(data as OrderTab1[]);
   } catch (error) {
+    console.error('GET /api/orders/tab1 error:', error);
     return NextResponse.json({ error: 'Failed to fetch orders' }, { status: 500 });
   }
 }
 
 export async function POST(request: NextRequest) {
   try {
+    const supabase = await createClient();
     const body = await request.json();
-    const maxStt = db.prepare('SELECT MAX(stt) as max FROM orders_tab1').get() as { max: number | null };
-    const nextStt = (maxStt?.max || 0) + 1;
+
+    // Get max STT
+    const { data: maxData } = await supabase
+      .from('orders_tab1')
+      .select('stt')
+      .order('stt', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const nextStt = maxData?.stt ? maxData.stt + 1 : 1;
 
     const reportedAmount = body.reported_amount || 0;
     const depositAmount = body.deposit_amount || 0;
     const shippingFee = body.shipping_fee || 0;
     const remainingAmount = Math.max(0, reportedAmount - depositAmount + shippingFee);
 
-    const order: OrderTab1 = {
+    const orderData = {
       stt: nextStt,
       product_image: body.product_image || '',
       buyer_name: body.buyer_name || '',
@@ -93,40 +107,29 @@ export async function POST(request: NextRequest) {
       remaining_amount: remainingAmount,
       status: body.status || 'chưa lên đơn',
       priority: body.priority || 'Bình thường',
-      created_at: new Date().toISOString(),
     };
 
-    const result = db.prepare(`
-      INSERT INTO orders_tab1 (
-        stt, product_image, buyer_name, buyer_phone, buyer_address,
-        order_code, quantity, reported_amount, deposit_amount, shipping_fee, remaining_amount,
-        status, priority, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      order.stt,
-      order.product_image,
-      order.buyer_name,
-      order.buyer_phone,
-      order.buyer_address,
-      order.order_code,
-      order.quantity,
-      order.reported_amount,
-      order.deposit_amount,
-      order.shipping_fee,
-      order.remaining_amount,
-      order.status,
-      order.priority,
-      order.created_at
-    );
+    const { data, error } = await supabase
+      .from('orders_tab1')
+      .insert(orderData)
+      .select()
+      .single();
 
-    return NextResponse.json({ id: result.lastInsertRowid, ...order });
+    if (error) {
+      console.error('Supabase error:', error);
+      return NextResponse.json({ error: 'Failed to create order' }, { status: 500 });
+    }
+
+    return NextResponse.json(data as OrderTab1);
   } catch (error) {
+    console.error('POST /api/orders/tab1 error:', error);
     return NextResponse.json({ error: 'Failed to create order' }, { status: 500 });
   }
 }
 
 export async function PUT(request: NextRequest) {
   try {
+    const supabase = await createClient();
     const body = await request.json();
     const { id, ...updateData } = body;
 
@@ -139,45 +142,43 @@ export async function PUT(request: NextRequest) {
     const shippingFee = updateData.shipping_fee || 0;
     const remainingAmount = Math.max(0, reportedAmount - depositAmount + shippingFee);
 
-    db.prepare(`
-      UPDATE orders_tab1 SET
-        product_image = ?,
-        buyer_name = ?,
-        buyer_phone = ?,
-        buyer_address = ?,
-        order_code = ?,
-        quantity = ?,
-        reported_amount = ?,
-        deposit_amount = ?,
-        shipping_fee = ?,
-        remaining_amount = ?,
-        status = ?,
-        priority = ?
-      WHERE id = ?
-    `).run(
-      updateData.product_image || '',
-      updateData.buyer_name || '',
-      updateData.buyer_phone || '',
-      updateData.buyer_address || '',
-      updateData.order_code || '',
-      updateData.quantity || 0,
-      reportedAmount,
-      depositAmount,
-      shippingFee,
-      remainingAmount,
-      updateData.status || 'chưa lên đơn',
-      updateData.priority || 'Bình thường',
-      id
-    );
+    const updatePayload = {
+      product_image: updateData.product_image || '',
+      buyer_name: updateData.buyer_name || '',
+      buyer_phone: updateData.buyer_phone || '',
+      buyer_address: updateData.buyer_address || '',
+      order_code: updateData.order_code || '',
+      quantity: updateData.quantity || 0,
+      reported_amount: reportedAmount,
+      deposit_amount: depositAmount,
+      shipping_fee: shippingFee,
+      remaining_amount: remainingAmount,
+      status: updateData.status || 'chưa lên đơn',
+      priority: updateData.priority || 'Bình thường',
+    };
 
-    return NextResponse.json({ success: true });
+    const { data, error } = await supabase
+      .from('orders_tab1')
+      .update(updatePayload)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Supabase error:', error);
+      return NextResponse.json({ error: 'Failed to update order' }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, data });
   } catch (error) {
+    console.error('PUT /api/orders/tab1 error:', error);
     return NextResponse.json({ error: 'Failed to update order' }, { status: 500 });
   }
 }
 
 export async function DELETE(request: NextRequest) {
   try {
+    const supabase = await createClient();
     const searchParams = request.nextUrl.searchParams;
     const id = searchParams.get('id');
 
@@ -185,10 +186,19 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'ID is required' }, { status: 400 });
     }
 
-    db.prepare('DELETE FROM orders_tab1 WHERE id = ?').run(id);
+    const { error } = await supabase
+      .from('orders_tab1')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('Supabase error:', error);
+      return NextResponse.json({ error: 'Failed to delete order' }, { status: 500 });
+    }
+
     return NextResponse.json({ success: true });
   } catch (error) {
+    console.error('DELETE /api/orders/tab1 error:', error);
     return NextResponse.json({ error: 'Failed to delete order' }, { status: 500 });
   }
 }
-
