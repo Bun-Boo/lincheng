@@ -26,6 +26,7 @@ export default function Home() {
   const [datePeriod, setDatePeriod] = useState('month');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const isSavingRef = useRef(false);
 
   // Check authentication on mount - không lưu vào localStorage để mỗi lần vào phải đăng nhập lại
   useEffect(() => {
@@ -256,6 +257,14 @@ export default function Home() {
   };
 
   const handleSave = async (data: any) => {
+    // Prevent duplicate submission
+    if (isSavingRef.current) {
+      console.log('Save already in progress, ignoring duplicate call');
+      return;
+    }
+    
+    isSavingRef.current = true;
+    
     try {
       // Save/update customer information first (for both create and edit)
       if (data.buyer_name && data.buyer_name.trim()) {
@@ -427,6 +436,8 @@ export default function Home() {
     } catch (error) {
       console.error('Error saving order:', error);
       alert('Có lỗi xảy ra khi lưu đơn hàng');
+    } finally {
+      isSavingRef.current = false;
     }
   };
 

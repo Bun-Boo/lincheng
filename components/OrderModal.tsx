@@ -8,7 +8,7 @@ import CustomerSelectModal from './CustomerSelectModal';
 interface OrderModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (data: any) => void;
+  onSave: (data: any) => void | Promise<void>;
   order?: OrderTab1 | OrderTab2 | null;
   type: 'tab1' | 'tab2';
 }
@@ -34,6 +34,7 @@ const priorityOptions: Priority[] = ['Gấp', 'Bình thường'];
 export default function OrderModal({ isOpen, onClose, onSave, order, type }: OrderModalProps) {
   const [imageUrl, setImageUrl] = useState<string>(order?.product_image || '');
   const [isUploading, setIsUploading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -255,8 +256,13 @@ export default function OrderModal({ isOpen, onClose, onSave, order, type }: Ord
     handleInputChange(field, numValue);
   };
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    
+    // Prevent double submission
+    if (isSubmitting) {
+      return;
+    }
     
     // Validate required fields
     if (!formData.buyer_name.trim()) {
@@ -288,33 +294,41 @@ export default function OrderModal({ isOpen, onClose, onSave, order, type }: Ord
       return;
     }
     
-    const data: any = {};
+    setIsSubmitting(true);
+    
+    try {
+      const data: any = {};
 
-    if (order?.id) {
-      data.id = order.id;
+      if (order?.id) {
+        data.id = order.id;
+      }
+
+      data.product_image = imageUrl;
+      data.buyer_name = formData.buyer_name;
+      data.buyer_phone = formData.buyer_phone;
+      data.buyer_address = formData.buyer_address;
+      data.order_code = formData.order_code;
+      data.status = formData.status;
+      data.priority = formData.priority;
+
+      // Tab 1 fields
+      data.quantity = formData.quantity;
+      data.reported_amount = formData.reported_amount;
+      data.deposit_amount = formData.deposit_amount;
+      data.shipping_fee = formData.shipping_fee;
+      data.remaining_amount = formData.remaining_amount;
+
+      // Tab 2 fields
+      data.capital = formData.capital;
+      data.profit = formData.profit;
+      data.shipping_fee = formData.shipping_fee;
+
+      await onSave(data);
+    } catch (error) {
+      console.error('Error in handleSubmit:', error);
+    } finally {
+      setIsSubmitting(false);
     }
-
-    data.product_image = imageUrl;
-    data.buyer_name = formData.buyer_name;
-    data.buyer_phone = formData.buyer_phone;
-    data.buyer_address = formData.buyer_address;
-    data.order_code = formData.order_code;
-    data.status = formData.status;
-    data.priority = formData.priority;
-
-    // Tab 1 fields
-    data.quantity = formData.quantity;
-    data.reported_amount = formData.reported_amount;
-    data.deposit_amount = formData.deposit_amount;
-    data.shipping_fee = formData.shipping_fee;
-    data.remaining_amount = formData.remaining_amount;
-
-    // Tab 2 fields
-    data.capital = formData.capital;
-    data.profit = formData.profit;
-    data.shipping_fee = formData.shipping_fee;
-
-    onSave(data);
   };
 
   if (!isOpen) return null;
@@ -566,9 +580,10 @@ export default function OrderModal({ isOpen, onClose, onSave, order, type }: Ord
             </button>
             <button
               type="submit"
-              className="flex-1 bg-pink-500 text-white py-2 rounded-lg hover:bg-pink-600 transition"
+              disabled={isSubmitting}
+              className="flex-1 bg-pink-500 text-white py-2 rounded-lg hover:bg-pink-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Lưu
+              {isSubmitting ? 'Đang lưu...' : 'Lưu'}
             </button>
           </div>
         </form>
