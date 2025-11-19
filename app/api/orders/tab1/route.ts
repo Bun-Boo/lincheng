@@ -91,7 +91,12 @@ export async function POST(request: NextRequest) {
     const reportedAmount = body.reported_amount || 0;
     const depositAmount = body.deposit_amount || 0;
     const shippingFee = body.shipping_fee || 0;
-    const remainingAmount = Math.max(0, reportedAmount - depositAmount + shippingFee);
+    const domesticShippingFee = body.domestic_shipping_fee || 0;
+    // Tiền còn lại = Tiền báo khách + Ship VN - Tiền khách cọc
+    const remainingAmount = Math.max(0, reportedAmount + shippingFee - depositAmount);
+
+    // Generate sync_id if not provided (for syncing with tab2)
+    const syncId = body.sync_id || crypto.randomUUID();
 
     const orderData = {
       stt: nextStt,
@@ -104,9 +109,11 @@ export async function POST(request: NextRequest) {
       reported_amount: reportedAmount,
       deposit_amount: depositAmount,
       shipping_fee: shippingFee,
+      domestic_shipping_fee: domesticShippingFee,
       remaining_amount: remainingAmount,
       status: body.status || 'chưa lên đơn',
       priority: body.priority || 'Bình thường',
+      sync_id: syncId,
     };
 
     const { data, error } = await supabase
@@ -140,9 +147,11 @@ export async function PUT(request: NextRequest) {
     const reportedAmount = updateData.reported_amount || 0;
     const depositAmount = updateData.deposit_amount || 0;
     const shippingFee = updateData.shipping_fee || 0;
-    const remainingAmount = Math.max(0, reportedAmount - depositAmount + shippingFee);
+    const domesticShippingFee = updateData.domestic_shipping_fee || 0;
+    // Tiền còn lại = Tiền báo khách + Ship VN - Tiền khách cọc
+    const remainingAmount = Math.max(0, reportedAmount + shippingFee - depositAmount);
 
-    const updatePayload = {
+    const updatePayload: any = {
       product_image: updateData.product_image || '',
       buyer_name: updateData.buyer_name || '',
       buyer_phone: updateData.buyer_phone || '',
@@ -152,10 +161,16 @@ export async function PUT(request: NextRequest) {
       reported_amount: reportedAmount,
       deposit_amount: depositAmount,
       shipping_fee: shippingFee,
+      domestic_shipping_fee: domesticShippingFee,
       remaining_amount: remainingAmount,
       status: updateData.status || 'chưa lên đơn',
       priority: updateData.priority || 'Bình thường',
     };
+
+    // Update sync_id if provided (for syncing with tab2)
+    if (updateData.sync_id) {
+      updatePayload.sync_id = updateData.sync_id;
+    }
 
     const { data, error } = await supabase
       .from('orders_tab1')

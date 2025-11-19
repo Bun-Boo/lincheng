@@ -12,6 +12,7 @@ interface OrderTableProps {
   onDelete: (id: number) => void;
   onBuyerClick: (buyer: { name: string; phone?: string; address?: string }) => void;
   visibleColumns: { [key: string]: boolean };
+  pageSize?: number;
 }
 
 export default function OrderTable({
@@ -21,6 +22,7 @@ export default function OrderTable({
   onDelete,
   onBuyerClick,
   visibleColumns,
+  pageSize = 10,
 }: OrderTableProps) {
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('vi-VN', {
@@ -52,10 +54,12 @@ export default function OrderTable({
 
   if (type === 'tab1') {
     const tab1Orders = orders as OrderTab1[];
+    const shouldScroll = tab1Orders.length > 10;
     return (
       <div className="table-container">
-        <table className="w-full border-collapse bg-white rounded-lg overflow-hidden shadow">
-          <thead className="bg-pink-100">
+        <div className={`bg-white rounded-lg overflow-hidden shadow ${shouldScroll ? 'max-h-[600px] overflow-y-auto' : ''}`}>
+        <table className="w-full border-collapse">
+          <thead className={`bg-pink-100 ${shouldScroll ? 'sticky top-0 z-10' : ''}`}>
             <tr>
               {visibleColumns.stt !== false && (
                 <th className="border p-2 text-left text-xs font-semibold">STT</th>
@@ -79,7 +83,10 @@ export default function OrderTable({
                 <th className="border p-2 text-left text-xs font-semibold">Tiền cọc</th>
               )}
               {visibleColumns.shipping_fee !== false && (
-                <th className="border p-2 text-left text-xs font-semibold">Tiền Ship (NĐ)</th>
+                <th className="border p-2 text-left text-xs font-semibold">Ship VN</th>
+              )}
+              {visibleColumns.domestic_shipping_fee !== false && (
+                <th className="border p-2 text-left text-xs font-semibold">Ship NĐ</th>
               )}
               {visibleColumns.remaining_amount !== false && (
                 <th className="border p-2 text-left text-xs font-semibold">Tiền còn lại</th>
@@ -151,6 +158,9 @@ export default function OrderTable({
                 {visibleColumns.shipping_fee !== false && (
                   <td className="border p-2 text-sm">{formatCurrency((order as OrderTab1).shipping_fee || 0)}</td>
                 )}
+                {visibleColumns.domestic_shipping_fee !== false && (
+                  <td className="border p-2 text-sm">{formatCurrency((order as OrderTab1).domestic_shipping_fee || 0)}</td>
+                )}
                 {visibleColumns.remaining_amount !== false && (
                   <td className="border p-2 text-sm">
                     <span className={`font-semibold ${
@@ -210,14 +220,17 @@ export default function OrderTable({
         {tab1Orders.length === 0 && (
           <div className="text-center py-8 text-gray-500">Không có dữ liệu</div>
         )}
+        </div>
       </div>
     );
   } else {
     const tab2Orders = orders as OrderTab2[];
+    const shouldScroll = tab2Orders.length > 10;
     return (
       <div className="table-container">
-        <table className="w-full border-collapse bg-white rounded-lg overflow-hidden shadow">
-          <thead className="bg-pink-100">
+        <div className={`bg-white rounded-lg overflow-hidden shadow ${shouldScroll ? 'max-h-[600px] overflow-y-auto' : ''}`}>
+        <table className="w-full border-collapse">
+          <thead className={`bg-pink-100 ${shouldScroll ? 'sticky top-0 z-10' : ''}`}>
             <tr>
               {visibleColumns.stt !== false && (
                 <th className="border p-2 text-left text-xs font-semibold">STT</th>
@@ -241,7 +254,10 @@ export default function OrderTable({
                 <th className="border p-2 text-left text-xs font-semibold">Lãi</th>
               )}
               {visibleColumns.shipping_fee !== false && (
-                <th className="border p-2 text-left text-xs font-semibold">Tiền Ship (NĐ)</th>
+                <th className="border p-2 text-left text-xs font-semibold">Ship VN</th>
+              )}
+              {visibleColumns.domestic_shipping_fee !== false && (
+                <th className="border p-2 text-left text-xs font-semibold">Ship NĐ</th>
               )}
               {visibleColumns.status !== false && (
                 <th className="border p-2 text-left text-xs font-semibold">Trạng thái</th>
@@ -317,6 +333,9 @@ export default function OrderTable({
                 {visibleColumns.shipping_fee !== false && (
                   <td className="border p-2 text-sm">{formatCurrency((order as OrderTab2).shipping_fee || 0)}</td>
                 )}
+                {visibleColumns.domestic_shipping_fee !== false && (
+                  <td className="border p-2 text-sm">{formatCurrency((order as OrderTab2).domestic_shipping_fee || 0)}</td>
+                )}
                 {visibleColumns.status !== false && (
                   <td className="border p-2 text-sm">
                     <span className={`px-2 py-1 rounded text-xs ${getStatusColor(order.status)}`}>
@@ -362,6 +381,7 @@ export default function OrderTable({
         {tab2Orders.length === 0 && (
           <div className="text-center py-8 text-gray-500">Không có dữ liệu</div>
         )}
+        </div>
       </div>
     );
   }

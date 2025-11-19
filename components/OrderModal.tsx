@@ -84,6 +84,7 @@ export default function OrderModal({ isOpen, onClose, onSave, order, type }: Ord
     reported_amount: order?.reported_amount || 0,
     deposit_amount: (order as OrderTab1)?.deposit_amount || 0,
     shipping_fee: (order as OrderTab1)?.shipping_fee || (order as OrderTab2)?.shipping_fee || 0,
+    domestic_shipping_fee: (order as OrderTab1)?.domestic_shipping_fee || (order as OrderTab2)?.domestic_shipping_fee || 0,
     remaining_amount: (order as OrderTab1)?.remaining_amount || 0,
     capital: (order as OrderTab2)?.capital || 0,
     profit: (order as OrderTab2)?.profit || 0,
@@ -116,6 +117,7 @@ export default function OrderModal({ isOpen, onClose, onSave, order, type }: Ord
               reported_amount: order.reported_amount || tab1Order?.reported_amount || tab2Order?.reported_amount || 0,
               deposit_amount: (order as OrderTab1)?.deposit_amount || tab1Order?.deposit_amount || 0,
               shipping_fee: (order as OrderTab1)?.shipping_fee || (order as OrderTab2)?.shipping_fee || tab1Order?.shipping_fee || tab2Order?.shipping_fee || 0,
+              domestic_shipping_fee: (order as OrderTab1)?.domestic_shipping_fee || (order as OrderTab2)?.domestic_shipping_fee || tab1Order?.domestic_shipping_fee || tab2Order?.domestic_shipping_fee || 0,
               remaining_amount: (order as OrderTab1)?.remaining_amount || tab1Order?.remaining_amount || 0,
               capital: (order as OrderTab2)?.capital || tab2Order?.capital || 0,
               profit: (order as OrderTab2)?.profit || tab2Order?.profit || 0,
@@ -135,6 +137,7 @@ export default function OrderModal({ isOpen, onClose, onSave, order, type }: Ord
               reported_amount: order.reported_amount || 0,
               deposit_amount: (order as OrderTab1)?.deposit_amount || 0,
               shipping_fee: (order as OrderTab1)?.shipping_fee || (order as OrderTab2)?.shipping_fee || 0,
+              domestic_shipping_fee: (order as OrderTab1)?.domestic_shipping_fee || (order as OrderTab2)?.domestic_shipping_fee || 0,
               remaining_amount: (order as OrderTab1)?.remaining_amount || 0,
               capital: (order as OrderTab2)?.capital || 0,
               profit: (order as OrderTab2)?.profit || 0,
@@ -154,6 +157,7 @@ export default function OrderModal({ isOpen, onClose, onSave, order, type }: Ord
             reported_amount: order.reported_amount || 0,
             deposit_amount: (order as OrderTab1)?.deposit_amount || 0,
             shipping_fee: (order as OrderTab1)?.shipping_fee || (order as OrderTab2)?.shipping_fee || 0,
+            domestic_shipping_fee: (order as OrderTab1)?.domestic_shipping_fee || (order as OrderTab2)?.domestic_shipping_fee || 0,
             remaining_amount: (order as OrderTab1)?.remaining_amount || 0,
             capital: (order as OrderTab2)?.capital || 0,
             profit: (order as OrderTab2)?.profit || 0,
@@ -175,6 +179,7 @@ export default function OrderModal({ isOpen, onClose, onSave, order, type }: Ord
         reported_amount: 0,
         deposit_amount: 0,
         shipping_fee: 0,
+        domestic_shipping_fee: 0,
         remaining_amount: 0,
         capital: 0,
         profit: 0,
@@ -184,16 +189,18 @@ export default function OrderModal({ isOpen, onClose, onSave, order, type }: Ord
   }, [order, isOpen]);
 
   // Auto calculate remaining_amount for tab1
+  // Tiền còn lại = Tiền báo khách + Ship VN - Tiền khách cọc
   useEffect(() => {
-    const remaining = formData.reported_amount - formData.deposit_amount + formData.shipping_fee;
+    const remaining = formData.reported_amount + formData.shipping_fee - formData.deposit_amount;
     setFormData(prev => ({ ...prev, remaining_amount: Math.max(0, remaining) }));
   }, [formData.reported_amount, formData.deposit_amount, formData.shipping_fee]);
 
   // Auto calculate profit - nếu trạng thái là "Huỷ đơn" thì lãi = 0
+  // Lãi = Tiền báo khách - (Vốn + ship nội địa)
   useEffect(() => {
-    const profit = formData.status === 'Huỷ đơn' ? 0 : formData.reported_amount - formData.capital;
+    const profit = formData.status === 'Huỷ đơn' ? 0 : formData.reported_amount - (formData.capital + formData.domestic_shipping_fee);
     setFormData(prev => ({ ...prev, profit }));
-  }, [formData.reported_amount, formData.capital, formData.status]);
+  }, [formData.reported_amount, formData.capital, formData.domestic_shipping_fee, formData.status]);
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -289,6 +296,10 @@ export default function OrderModal({ isOpen, onClose, onSave, order, type }: Ord
       alert('Tiền Ship phải lớn hơn hoặc bằng 0');
       return;
     }
+    if (formData.domestic_shipping_fee < 0) {
+      alert('Ship NĐ phải lớn hơn hoặc bằng 0');
+      return;
+    }
     if (formData.capital < 0) {
       alert('Vốn phải lớn hơn hoặc bằng 0');
       return;
@@ -316,12 +327,14 @@ export default function OrderModal({ isOpen, onClose, onSave, order, type }: Ord
       data.reported_amount = formData.reported_amount;
       data.deposit_amount = formData.deposit_amount;
       data.shipping_fee = formData.shipping_fee;
+      data.domestic_shipping_fee = formData.domestic_shipping_fee;
       data.remaining_amount = formData.remaining_amount;
 
       // Tab 2 fields
       data.capital = formData.capital;
       data.profit = formData.profit;
       data.shipping_fee = formData.shipping_fee;
+      data.domestic_shipping_fee = formData.domestic_shipping_fee;
 
       await onSave(data);
     } catch (error) {
@@ -501,11 +514,21 @@ export default function OrderModal({ isOpen, onClose, onSave, order, type }: Ord
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Tiền Ship (NĐ)</label>
+                <label className="block text-sm font-medium mb-1">Ship VN</label>
                 <input
                   type="text"
                   value={formatCurrencyInput(formData.shipping_fee, true)}
                   onChange={(e) => handleCurrencyChange('shipping_fee', e.target.value)}
+                  placeholder="0"
+                  className="w-full border rounded-lg px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Ship NĐ</label>
+                <input
+                  type="text"
+                  value={formatCurrencyInput(formData.domestic_shipping_fee, true)}
+                  onChange={(e) => handleCurrencyChange('domestic_shipping_fee', e.target.value)}
                   placeholder="0"
                   className="w-full border rounded-lg px-3 py-2"
                 />
@@ -558,11 +581,21 @@ export default function OrderModal({ isOpen, onClose, onSave, order, type }: Ord
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium mb-1">Tiền Ship (NĐ)</label>
+                <label className="block text-sm font-medium mb-1">Ship VN</label>
                 <input
                   type="text"
                   value={formatCurrencyInput(formData.shipping_fee, true)}
                   onChange={(e) => handleCurrencyChange('shipping_fee', e.target.value)}
+                  placeholder="0"
+                  className="w-full border rounded-lg px-3 py-2"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-1">Ship NĐ</label>
+                <input
+                  type="text"
+                  value={formatCurrencyInput(formData.domestic_shipping_fee, true)}
+                  onChange={(e) => handleCurrencyChange('domestic_shipping_fee', e.target.value)}
                   placeholder="0"
                   className="w-full border rounded-lg px-3 py-2"
                 />

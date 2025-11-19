@@ -27,6 +27,8 @@ export default function Home() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const isSavingRef = useRef(false);
+  const [pageSize, setPageSize] = useState(10);
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Check authentication on mount - không lưu vào localStorage để mỗi lần vào phải đăng nhập lại
   useEffect(() => {
@@ -149,6 +151,7 @@ export default function Home() {
     reported_amount: true,
     deposit_amount: true,
     shipping_fee: true,
+    domestic_shipping_fee: true,
     remaining_amount: true,
     status: true,
     priority: true,
@@ -163,6 +166,7 @@ export default function Home() {
     capital: true,
     profit: true,
     shipping_fee: true,
+    domestic_shipping_fee: true,
     status: true,
     priority: true,
   });
@@ -203,8 +207,23 @@ export default function Home() {
   useEffect(() => {
     if (startDate && endDate) {
       fetchOrders();
+      setCurrentPage(1); // Reset to first page when filters change
     }
   }, [search, statusFilter, priorityFilter, datePeriod, startDate, endDate]);
+
+  // Calculate paginated orders
+  const getPaginatedOrders = () => {
+    const orders = activeTab === 'tab1' ? ordersTab1 : ordersTab2;
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    return orders.slice(startIndex, endIndex);
+  };
+
+  const totalPages = Math.ceil(
+    ((activeTab === 'tab1' ? ordersTab1 : ordersTab2).length || 0) / pageSize
+  );
+
+  const totalOrders = activeTab === 'tab1' ? ordersTab1.length : ordersTab2.length;
 
   const handleAdd = () => {
     setSelectedOrder(null);
@@ -325,80 +344,132 @@ export default function Home() {
         }
       }
 
+      // Validate order_code is provided
+      if (!data.order_code || !data.order_code.trim()) {
+        alert('Vui lòng nhập mã vận đơn');
+        return;
+      }
+
+      // Common fields that should be synced between tabs
+      const commonFields = {
+        product_image: data.product_image,
+        buyer_name: data.buyer_name,
+        buyer_phone: data.buyer_phone,
+        buyer_address: data.buyer_address,
+        order_code: data.order_code,
+        reported_amount: data.reported_amount,
+        shipping_fee: data.shipping_fee,
+        domestic_shipping_fee: data.domestic_shipping_fee,
+        status: data.status,
+        priority: data.priority,
+      };
+
       // If editing, find and update both tabs
       if (data.id) {
-        // Find corresponding order in the other tab by order_code
+        // Get current order to get sync_id
+        const currentOrders = activeTab === 'tab1' ? ordersTab1 : ordersTab2;
+        const currentOrder = currentOrders.find((o: any) => o.id === data.id);
+        const syncId = currentOrder?.sync_id || data.sync_id;
+
+        // Find corresponding order in the other tab
         const otherTabEndpoint = activeTab === 'tab1' ? '/api/orders/tab2' : '/api/orders/tab1';
-        const searchRes = await fetch(`${otherTabEndpoint}?search=${encodeURIComponent(data.order_code)}`);
-        const otherTabOrders = await searchRes.json();
-        const otherTabOrder = otherTabOrders.find((o: any) => o.order_code === data.order_code);
+        const otherTabOrders = activeTab === 'tab1' ? ordersTab2 : ordersTab1;
+        
+        // Try to find by sync_id first (preferred method)
+        let otherTabOrder = syncId ? otherTabOrders.find((o: any) => o.sync_id === syncId) : null;
+        
+        // Fallback: If not found by sync_id and order_code exists, try to find by order_code
+        // This handles existing data that might not have been linked yet
+        if (!otherTabOrder && data.order_code) {
+          const matchingByCode = otherTabOrders.find(
+            (o: any) => o.order_code && o.order_code.trim() === data.order_code.trim()
+          );
+          if (matchingByCode) {
+            otherTabOrder = matchingByCode;
+            // If found by order_code but sync_id is different, update sync_id to match
+            // This will link them for future syncs
+            if (syncId && matchingByCode.sync_id !== syncId) {
+              // We'll update the other tab's sync_id when we sync the data
+            }
+          }
+        }
 
         // Update both tabs
         const updatePromises = [];
         
-        // Update current tab with full data
+        // Update current tab with full data (include sync_id to maintain sync)
         const currentEndpoint = activeTab === 'tab1' ? '/api/orders/tab1' : '/api/orders/tab2';
-        updatePromises.push(
-          fetch(currentEndpoint, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data),
-          })
-        );
+        const currentTabData = { ...data };
+        // Use sync_id from current order, or from other tab if found, or create new one
+        const finalSyncId = syncId || (otherTabOrder?.sync_id) || crypto.randomUUID();
+        currentTabData.sync_id = finalSyncId;
+        const currentTabUpdate = fetch(currentEndpoint, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(currentTabData),
+        }).then(async (res) => {
+          if (!res.ok) {
+            const error = await res.json().catch(() => ({ error: 'Lỗi không xác định' }));
+            throw new Error(error.error || `Lỗi khi cập nhật đơn hàng ở tab ${activeTab === 'tab1' ? 'Khách Hàng' : 'Shop'}`);
+          }
+          return res;
+        });
+        updatePromises.push(currentTabUpdate);
 
-        // Update other tab if order exists - only sync common fields
+        // Update other tab if order exists - sync all common fields
         if (otherTabOrder?.id) {
-          // Prepare sync data - only common fields, keep tab-specific fields from existing order
+          // Prepare sync data - sync all common fields, keep tab-specific fields from existing order
+          // Use sync_id from current order to link them (or create new one if neither has it)
+          const finalSyncId = syncId || otherTabOrder.sync_id || crypto.randomUUID();
+          
           const syncData: any = {
             id: otherTabOrder.id,
-            product_image: data.product_image,
-            buyer_name: data.buyer_name,
-            buyer_phone: data.buyer_phone,
-            buyer_address: data.buyer_address,
-            order_code: data.order_code,
-            reported_amount: data.reported_amount,
-            shipping_fee: data.shipping_fee,
-            status: data.status,
-            priority: data.priority,
+            ...commonFields,
+            sync_id: finalSyncId, // Link them with same sync_id
           };
 
           // Keep tab-specific fields from existing order
           if (activeTab === 'tab1') {
             // Updating tab1, so keep tab2's capital and profit
-            syncData.capital = otherTabOrder.capital || 0;
-            syncData.profit = otherTabOrder.profit || 0;
+            syncData.capital = (otherTabOrder as any).capital || 0;
+            syncData.profit = (otherTabOrder as any).profit || 0;
           } else {
             // Updating tab2, so keep tab1's quantity, deposit_amount, remaining_amount
-            syncData.quantity = otherTabOrder.quantity || 0;
-            syncData.deposit_amount = otherTabOrder.deposit_amount || 0;
-            syncData.remaining_amount = otherTabOrder.remaining_amount || 0;
+            syncData.quantity = (otherTabOrder as any).quantity || 0;
+            syncData.deposit_amount = (otherTabOrder as any).deposit_amount || 0;
+            syncData.remaining_amount = (otherTabOrder as any).remaining_amount || 0;
           }
 
-          updatePromises.push(
-            fetch(otherTabEndpoint, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(syncData),
-            })
-          );
+          const otherTabUpdate = fetch(otherTabEndpoint, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(syncData),
+          }).then(async (res) => {
+            if (!res.ok) {
+              const error = await res.json().catch(() => ({ error: 'Lỗi không xác định' }));
+              throw new Error(error.error || `Lỗi khi cập nhật đơn hàng ở tab ${activeTab === 'tab1' ? 'Shop' : 'Khách Hàng'}`);
+            }
+            return res;
+          });
+          updatePromises.push(otherTabUpdate);
         } else {
-          // If order doesn't exist in other tab, create it with default values for tab-specific fields
+          // If order doesn't exist in other tab, create it with synced common fields
           const createData: any = {
-            ...data,
+            ...commonFields,
+            sync_id: syncId || crypto.randomUUID(), // Use existing sync_id or create new one
           };
           
           // Set default values for tab-specific fields
           if (activeTab === 'tab1') {
             // Creating in tab2, set default capital and profit
-            createData.capital = 0;
-            createData.profit = 0;
+            createData.capital = data.capital || 0;
+            createData.profit = data.profit || 0;
           } else {
             // Creating in tab1, set default quantity, deposit_amount, remaining_amount
-            createData.quantity = 0;
-            createData.deposit_amount = 0;
-            createData.remaining_amount = 0;
+            createData.quantity = data.quantity || 0;
+            createData.deposit_amount = data.deposit_amount || 0;
+            createData.remaining_amount = data.remaining_amount || 0;
           }
-          // shipping_fee is common field, already included in data
 
           updatePromises.push(
             fetch(otherTabEndpoint, {
@@ -411,22 +482,48 @@ export default function Home() {
 
         await Promise.all(updatePromises);
       } else {
-        // If creating new, create orders in both tabs
+        // If creating new, create orders in both tabs with synced common fields
+        // Generate a shared sync_id for both tabs
+        const sharedSyncId = crypto.randomUUID();
+
+        // Prepare data for tab1
+        const tab1Data: any = {
+          ...commonFields,
+          quantity: data.quantity || 0,
+          deposit_amount: data.deposit_amount || 0,
+          remaining_amount: data.remaining_amount || 0,
+          sync_id: sharedSyncId, // Use same sync_id for both tabs
+        };
+
+        // Prepare data for tab2
+        const tab2Data: any = {
+          ...commonFields,
+          capital: data.capital || 0,
+          profit: data.profit || 0,
+          sync_id: sharedSyncId, // Use same sync_id for both tabs
+        };
+
         const [res1, res2] = await Promise.all([
           fetch('/api/orders/tab1', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data),
+            body: JSON.stringify(tab1Data),
           }),
           fetch('/api/orders/tab2', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data),
+            body: JSON.stringify(tab2Data),
           }),
         ]);
 
-        if (!res1.ok || !res2.ok) {
-          throw new Error('Failed to create orders');
+        if (!res1.ok) {
+          const error1 = await res1.json().catch(() => ({ error: 'Lỗi không xác định khi tạo đơn hàng ở tab Khách Hàng' }));
+          throw new Error(error1.error || 'Lỗi khi tạo đơn hàng ở tab Khách Hàng');
+        }
+
+        if (!res2.ok) {
+          const error2 = await res2.json().catch(() => ({ error: 'Lỗi không xác định khi tạo đơn hàng ở tab Shop' }));
+          throw new Error(error2.error || 'Lỗi khi tạo đơn hàng ở tab Shop');
         }
       }
 
@@ -525,7 +622,8 @@ export default function Home() {
         { key: 'quantity', label: 'Số lượng' },
         { key: 'reported_amount', label: 'Tiền báo khách' },
         { key: 'deposit_amount', label: 'Tiền khách cọc' },
-        { key: 'shipping_fee', label: 'Tiền Ship (NĐ)' },
+        { key: 'shipping_fee', label: 'Ship VN' },
+        { key: 'domestic_shipping_fee', label: 'Ship NĐ' },
         { key: 'remaining_amount', label: 'Tiền còn lại' },
         { key: 'status', label: 'Trạng thái đơn' },
         { key: 'priority', label: 'Độ ưu tiên' },
@@ -543,7 +641,8 @@ export default function Home() {
         { key: 'reported_amount', label: 'Tiền báo khách' },
         { key: 'capital', label: 'Vốn' },
         { key: 'profit', label: 'Lãi' },
-        { key: 'shipping_fee', label: 'Tiền Ship (NĐ)' },
+        { key: 'shipping_fee', label: 'Ship VN' },
+        { key: 'domestic_shipping_fee', label: 'Ship NĐ' },
         { key: 'status', label: 'Trạng thái đơn' },
         { key: 'priority', label: 'Độ ưu tiên' },
       ].map((col) => ({
@@ -706,13 +805,72 @@ export default function Home() {
             />
 
             <OrderTable
-              orders={activeTab === 'tab1' ? ordersTab1 : ordersTab2}
+              orders={getPaginatedOrders()}
               type={activeTab}
               onEdit={handleEdit}
               onDelete={handleDelete}
               onBuyerClick={handleBuyerClick}
               visibleColumns={activeTab === 'tab1' ? visibleColumnsTab1 : visibleColumnsTab2}
+              pageSize={pageSize}
             />
+
+            {/* Pagination Controls */}
+            <div className="mt-4 flex flex-wrap items-center justify-between gap-4 bg-white p-4 rounded-lg shadow">
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-gray-600">Hiển thị:</label>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="border rounded-lg px-3 py-1 text-sm"
+                >
+                  <option value={10}>10</option>
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={500}>500</option>
+                </select>
+                <span className="text-sm text-gray-600">
+                  / {totalOrders} bản ghi
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1 border rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-pink-50"
+                >
+                  Đầu
+                </button>
+                <button
+                  onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                  className="px-3 py-1 border rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-pink-50"
+                >
+                  Trước
+                </button>
+                <span className="text-sm text-gray-600">
+                  Trang {currentPage} / {totalPages || 1}
+                </span>
+                <button
+                  onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                  disabled={currentPage >= totalPages}
+                  className="px-3 py-1 border rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-pink-50"
+                >
+                  Sau
+                </button>
+                <button
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage >= totalPages}
+                  className="px-3 py-1 border rounded-lg text-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-pink-50"
+                >
+                  Cuối
+                </button>
+              </div>
+            </div>
           </>
         )}
       </div>

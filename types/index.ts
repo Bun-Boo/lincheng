@@ -20,9 +20,11 @@ export interface OrderTab1 {
   reported_amount: number;
   deposit_amount: number;
   shipping_fee: number;
+  domestic_shipping_fee: number;
   remaining_amount: number;
   status: OrderStatus;
   priority: Priority;
+  sync_id?: string;
   created_at: string;
 }
 
@@ -38,8 +40,10 @@ export interface OrderTab2 {
   capital: number;
   profit: number;
   shipping_fee: number;
+  domestic_shipping_fee: number;
   status: OrderStatus;
   priority: Priority;
+  sync_id?: string;
   created_at: string;
 }
 

@@ -91,9 +91,14 @@ export async function POST(request: NextRequest) {
     const reportedAmount = body.reported_amount || 0;
     const capital = body.capital || 0;
     const status = body.status || 'chưa lên đơn';
+    const domesticShippingFee = body.domestic_shipping_fee || 0;
     // Nếu trạng thái là "Huỷ đơn" thì lãi = 0
-    const profit = status === 'Huỷ đơn' ? 0 : reportedAmount - capital;
+    // Lãi = Tiền báo khách - (Vốn + ship nội địa)
+    const profit = status === 'Huỷ đơn' ? 0 : reportedAmount - (capital + domesticShippingFee);
     const shippingFee = body.shipping_fee || 0;
+
+    // Generate sync_id if not provided (for syncing with tab1)
+    const syncId = body.sync_id || crypto.randomUUID();
 
     const orderData = {
       stt: nextStt,
@@ -106,8 +111,10 @@ export async function POST(request: NextRequest) {
       capital: capital,
       profit: profit,
       shipping_fee: shippingFee,
+      domestic_shipping_fee: domesticShippingFee,
       status: body.status || 'chưa lên đơn',
       priority: body.priority || 'Bình thường',
+      sync_id: syncId,
     };
 
     const { data, error } = await supabase
@@ -141,11 +148,13 @@ export async function PUT(request: NextRequest) {
     const reportedAmount = updateData.reported_amount || 0;
     const capital = updateData.capital || 0;
     const status = updateData.status || 'chưa lên đơn';
+    const domesticShippingFee = updateData.domestic_shipping_fee || 0;
     // Nếu trạng thái là "Huỷ đơn" thì lãi = 0
-    const profit = status === 'Huỷ đơn' ? 0 : reportedAmount - capital;
+    // Lãi = Tiền báo khách - (Vốn + ship nội địa)
+    const profit = status === 'Huỷ đơn' ? 0 : reportedAmount - (capital + domesticShippingFee);
     const shippingFee = updateData.shipping_fee || 0;
 
-    const updatePayload = {
+    const updatePayload: any = {
       product_image: updateData.product_image || '',
       buyer_name: updateData.buyer_name || '',
       buyer_phone: updateData.buyer_phone || '',
@@ -155,9 +164,15 @@ export async function PUT(request: NextRequest) {
       capital: capital,
       profit: profit,
       shipping_fee: shippingFee,
+      domestic_shipping_fee: domesticShippingFee,
       status: updateData.status || 'chưa lên đơn',
       priority: updateData.priority || 'Bình thường',
     };
+
+    // Update sync_id if provided (for syncing with tab1)
+    if (updateData.sync_id) {
+      updatePayload.sync_id = updateData.sync_id;
+    }
 
     const { data, error } = await supabase
       .from('orders_tab2')
