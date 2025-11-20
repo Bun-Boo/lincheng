@@ -8,6 +8,7 @@ import OrderModal from '@/components/OrderModal';
 import BuyerInfoModal from '@/components/BuyerInfoModal';
 import ColumnToggle from '@/components/ColumnToggle';
 import LoginModal from '@/components/LoginModal';
+import Loading from '@/components/Loading';
 import { OrderTab1, OrderTab2, BuyerInfo } from '@/types';
 
 type TabType = 'tab1' | 'tab2' | 'tab3' | 'tab4';
@@ -27,8 +28,11 @@ export default function Home() {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const isSavingRef = useRef(false);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(50);
   const [currentPage, setCurrentPage] = useState(1);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Check authentication on mount - không lưu vào localStorage để mỗi lần vào phải đăng nhập lại
   useEffect(() => {
@@ -172,6 +176,7 @@ export default function Home() {
   });
 
   const fetchOrders = async () => {
+    setIsLoading(true);
     try {
       const params = new URLSearchParams();
       if (search) params.append('search', search);
@@ -201,6 +206,8 @@ export default function Home() {
       setOrdersTab2(data2);
     } catch (error) {
       console.error('Error fetching orders:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -238,6 +245,7 @@ export default function Home() {
   const handleDelete = async (id: number) => {
     if (!confirm('Bạn có chắc chắn muốn xóa đơn hàng này? Đơn hàng sẽ bị xóa ở cả 2 tab.')) return;
 
+    setIsDeleting(true);
     try {
       // Get order_code from current state
       const currentOrders = activeTab === 'tab1' ? ordersTab1 : ordersTab2;
@@ -268,21 +276,24 @@ export default function Home() {
       }
 
       await Promise.all(deletePromises);
-      fetchOrders();
+      await fetchOrders();
     } catch (error) {
       console.error('Error deleting order:', error);
       alert('Có lỗi xảy ra khi xóa đơn hàng');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
   const handleSave = async (data: any) => {
     // Prevent duplicate submission
-    if (isSavingRef.current) {
+    if (isSavingRef.current || isSaving) {
       console.log('Save already in progress, ignoring duplicate call');
       return;
     }
     
     isSavingRef.current = true;
+    setIsSaving(true);
     
     try {
       // Save/update customer information first (for both create and edit)
@@ -535,6 +546,7 @@ export default function Home() {
       alert('Có lỗi xảy ra khi lưu đơn hàng');
     } finally {
       isSavingRef.current = false;
+      setIsSaving(false);
     }
   };
 
@@ -804,15 +816,19 @@ export default function Home() {
               }}
             />
 
-            <OrderTable
-              orders={getPaginatedOrders()}
-              type={activeTab}
-              onEdit={handleEdit}
-              onDelete={handleDelete}
-              onBuyerClick={handleBuyerClick}
-              visibleColumns={activeTab === 'tab1' ? visibleColumnsTab1 : visibleColumnsTab2}
-              pageSize={pageSize}
-            />
+            {isLoading ? (
+              <Loading message="Đang tải dữ liệu..." />
+            ) : (
+              <OrderTable
+                orders={getPaginatedOrders()}
+                type={activeTab}
+                onEdit={handleEdit}
+                onDelete={handleDelete}
+                onBuyerClick={handleBuyerClick}
+                visibleColumns={activeTab === 'tab1' ? visibleColumnsTab1 : visibleColumnsTab2}
+                pageSize={pageSize}
+              />
+            )}
 
             {/* Pagination Controls */}
             <div className="mt-4 flex flex-wrap items-center justify-between gap-4 bg-white p-4 rounded-lg shadow">
@@ -891,6 +907,10 @@ export default function Home() {
         onClose={() => setIsBuyerModalOpen(false)}
         buyerInfo={buyerInfo}
       />
+
+      {/* Loading overlays */}
+      {isSaving && <Loading message="Đang lưu đơn hàng..." fullScreen />}
+      {isDeleting && <Loading message="Đang xóa đơn hàng..." fullScreen />}
     </div>
   );
 }

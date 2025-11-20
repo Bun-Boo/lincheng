@@ -9,6 +9,7 @@ export async function GET(request: NextRequest) {
     const supabase = await createClient();
     const searchParams = request.nextUrl.searchParams;
     const search = searchParams.get('search') || '';
+    const syncId = searchParams.get('sync_id') || '';
     const status = searchParams.get('status') || '';
     const priority = searchParams.get('priority') || '';
     const period = searchParams.get('period') || '';
@@ -20,8 +21,12 @@ export async function GET(request: NextRequest) {
       .select('*')
       .order('stt', { ascending: true });
 
-    // Search filter (LIKE queries)
-    if (search) {
+    // Sync ID filter (highest priority - exact match)
+    if (syncId) {
+      query = query.eq('sync_id', syncId);
+    }
+    // Search filter (LIKE queries) - only if no sync_id
+    else if (search) {
       const searchPattern = `%${search}%`;
       query = query.or(
         `buyer_name.ilike.${searchPattern},order_code.ilike.${searchPattern},buyer_phone.ilike.${searchPattern},buyer_address.ilike.${searchPattern}`

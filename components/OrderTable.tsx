@@ -57,8 +57,8 @@ export default function OrderTable({
     const shouldScroll = tab1Orders.length > 10;
     return (
       <div className="table-container">
-        <div className={`bg-white rounded-lg overflow-hidden shadow ${shouldScroll ? 'max-h-[600px] overflow-y-auto' : ''}`}>
-        <table className="w-full border-collapse">
+        <div className={`bg-white rounded-lg shadow ${shouldScroll ? 'max-h-[600px] overflow-y-auto' : ''} overflow-x-auto`}>
+        <table className="w-full border-collapse min-w-[800px]">
           <thead className={`bg-pink-100 ${shouldScroll ? 'sticky top-0 z-10' : ''}`}>
             <tr>
               {visibleColumns.stt !== false && (
@@ -228,8 +228,8 @@ export default function OrderTable({
     const shouldScroll = tab2Orders.length > 10;
     return (
       <div className="table-container">
-        <div className={`bg-white rounded-lg overflow-hidden shadow ${shouldScroll ? 'max-h-[600px] overflow-y-auto' : ''}`}>
-        <table className="w-full border-collapse">
+        <div className={`bg-white rounded-lg shadow ${shouldScroll ? 'max-h-[600px] overflow-y-auto' : ''} overflow-x-auto`}>
+        <table className="w-full border-collapse min-w-[800px]">
           <thead className={`bg-pink-100 ${shouldScroll ? 'sticky top-0 z-10' : ''}`}>
             <tr>
               {visibleColumns.stt !== false && (

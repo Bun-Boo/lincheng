@@ -4,6 +4,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { X, Upload, Users } from 'lucide-react';
 import { OrderTab1, OrderTab2, OrderStatus, Priority } from '@/types';
 import CustomerSelectModal from './CustomerSelectModal';
+import Loading from './Loading';
 
 interface OrderModalProps {
   isOpen: boolean;
@@ -35,6 +36,7 @@ export default function OrderModal({ isOpen, onClose, onSave, order, type }: Ord
   const [imageUrl, setImageUrl] = useState<string>(order?.product_image || '');
   const [isUploading, setIsUploading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isFetchingData, setIsFetchingData] = useState(false);
   const [showCustomerModal, setShowCustomerModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -92,10 +94,33 @@ export default function OrderModal({ isOpen, onClose, onSave, order, type }: Ord
 
   useEffect(() => {
     if (order && isOpen) {
-      // When editing, fetch full data from both tabs if order_code exists
+      // When editing, fetch full data from both tabs using sync_id
       const fetchFullOrderData = async () => {
-        if (order.order_code) {
-          try {
+        setIsFetchingData(true);
+        try {
+          // Get sync_id from current order
+          const syncId = (order as any).sync_id;
+          
+          // Fetch from both tabs using sync_id (most accurate method)
+          let tab1Order = null;
+          let tab2Order = null;
+          
+          if (syncId) {
+            // Call API with sync_id to get exact matches from both tabs
+            const [res1, res2] = await Promise.all([
+              fetch(`/api/orders/tab1?sync_id=${encodeURIComponent(syncId)}`),
+              fetch(`/api/orders/tab2?sync_id=${encodeURIComponent(syncId)}`),
+            ]);
+            const tab1Orders = await res1.json();
+            const tab2Orders = await res2.json();
+            
+            // Get the first match (should be only one if sync_id is unique)
+            tab1Order = tab1Orders.length > 0 ? tab1Orders[0] : null;
+            tab2Order = tab2Orders.length > 0 ? tab2Orders[0] : null;
+          }
+          
+          // Fallback: if no sync_id, try by order_code
+          if (!tab1Order && !tab2Order && order.order_code) {
             const [res1, res2] = await Promise.all([
               fetch(`/api/orders/tab1?search=${encodeURIComponent(order.order_code)}`),
               fetch(`/api/orders/tab2?search=${encodeURIComponent(order.order_code)}`),
@@ -103,49 +128,39 @@ export default function OrderModal({ isOpen, onClose, onSave, order, type }: Ord
             const tab1Orders = await res1.json();
             const tab2Orders = await res2.json();
             
-            const tab1Order = tab1Orders.find((o: any) => o.order_code === order.order_code);
-            const tab2Order = tab2Orders.find((o: any) => o.order_code === order.order_code);
-            
-            setFormData({
-              buyer_name: order.buyer_name || tab1Order?.buyer_name || tab2Order?.buyer_name || '',
-              buyer_phone: order.buyer_phone || tab1Order?.buyer_phone || tab2Order?.buyer_phone || '',
-              buyer_address: order.buyer_address || tab1Order?.buyer_address || tab2Order?.buyer_address || '',
-              order_code: order.order_code || '',
-              status: order.status || tab1Order?.status || tab2Order?.status || 'chưa lên đơn',
-              priority: order.priority || tab1Order?.priority || tab2Order?.priority || 'Bình thường',
-              quantity: (order as OrderTab1)?.quantity || tab1Order?.quantity || 0,
-              reported_amount: order.reported_amount || tab1Order?.reported_amount || tab2Order?.reported_amount || 0,
-              deposit_amount: (order as OrderTab1)?.deposit_amount || tab1Order?.deposit_amount || 0,
-              shipping_fee: (order as OrderTab1)?.shipping_fee || (order as OrderTab2)?.shipping_fee || tab1Order?.shipping_fee || tab2Order?.shipping_fee || 0,
-              domestic_shipping_fee: (order as OrderTab1)?.domestic_shipping_fee || (order as OrderTab2)?.domestic_shipping_fee || tab1Order?.domestic_shipping_fee || tab2Order?.domestic_shipping_fee || 0,
-              remaining_amount: (order as OrderTab1)?.remaining_amount || tab1Order?.remaining_amount || 0,
-              capital: (order as OrderTab2)?.capital || tab2Order?.capital || 0,
-              profit: (order as OrderTab2)?.profit || tab2Order?.profit || 0,
-            });
-            setImageUrl(order.product_image || tab1Order?.product_image || tab2Order?.product_image || '');
-          } catch (error) {
-            console.error('Error fetching full order data:', error);
-            // Fallback to current order data
-            setFormData({
-              buyer_name: order.buyer_name || '',
-              buyer_phone: order.buyer_phone || '',
-              buyer_address: order.buyer_address || '',
-              order_code: order.order_code || '',
-              status: order.status || 'chưa lên đơn',
-              priority: order.priority || 'Bình thường',
-              quantity: (order as OrderTab1)?.quantity || 0,
-              reported_amount: order.reported_amount || 0,
-              deposit_amount: (order as OrderTab1)?.deposit_amount || 0,
-              shipping_fee: (order as OrderTab1)?.shipping_fee || (order as OrderTab2)?.shipping_fee || 0,
-              domestic_shipping_fee: (order as OrderTab1)?.domestic_shipping_fee || (order as OrderTab2)?.domestic_shipping_fee || 0,
-              remaining_amount: (order as OrderTab1)?.remaining_amount || 0,
-              capital: (order as OrderTab2)?.capital || 0,
-              profit: (order as OrderTab2)?.profit || 0,
-            });
-            setImageUrl(order.product_image || '');
+            tab1Order = tab1Orders.find((o: any) => o.order_code === order.order_code) || null;
+            tab2Order = tab2Orders.find((o: any) => o.order_code === order.order_code) || null;
           }
-        } else {
-          // No order_code, use current order data
+          
+          // Merge data from both tabs - combine all fields from both responses
+          // Priority: tab1Order for tab1 fields, tab2Order for tab2 fields, then current order
+          const mergedData = {
+            // Common fields - get from any available source
+            buyer_name: tab1Order?.buyer_name || tab2Order?.buyer_name || order.buyer_name || '',
+            buyer_phone: tab1Order?.buyer_phone || tab2Order?.buyer_phone || order.buyer_phone || '',
+            buyer_address: tab1Order?.buyer_address || tab2Order?.buyer_address || order.buyer_address || '',
+            order_code: tab1Order?.order_code || tab2Order?.order_code || order.order_code || '',
+            status: tab1Order?.status || tab2Order?.status || order.status || 'chưa lên đơn',
+            priority: tab1Order?.priority || tab2Order?.priority || order.priority || 'Bình thường',
+            // Tab1 fields - from tab1Order, fallback to current order
+            quantity: tab1Order?.quantity ?? (order as OrderTab1)?.quantity ?? 0,
+            deposit_amount: tab1Order?.deposit_amount ?? (order as OrderTab1)?.deposit_amount ?? 0,
+            remaining_amount: tab1Order?.remaining_amount ?? (order as OrderTab1)?.remaining_amount ?? 0,
+            // Tab2 fields - from tab2Order only (don't use current order as it might be from tab1)
+            capital: tab2Order?.capital ?? 0,
+            profit: tab2Order?.profit ?? 0,
+            // Common numeric fields - prioritize from tab-specific data
+            reported_amount: tab1Order?.reported_amount ?? tab2Order?.reported_amount ?? order.reported_amount ?? 0,
+            shipping_fee: tab1Order?.shipping_fee ?? tab2Order?.shipping_fee ?? order.shipping_fee ?? 0,
+            domestic_shipping_fee: tab1Order?.domestic_shipping_fee ?? tab2Order?.domestic_shipping_fee ?? order.domestic_shipping_fee ?? 0,
+          };
+          
+          // Fill all inputs with merged data
+          setFormData(mergedData);
+          setImageUrl(tab1Order?.product_image || tab2Order?.product_image || order.product_image || '');
+        } catch (error) {
+          console.error('Error fetching full order data:', error);
+          // Fallback to current order data
           setFormData({
             buyer_name: order.buyer_name || '',
             buyer_phone: order.buyer_phone || '',
@@ -153,16 +168,18 @@ export default function OrderModal({ isOpen, onClose, onSave, order, type }: Ord
             order_code: order.order_code || '',
             status: order.status || 'chưa lên đơn',
             priority: order.priority || 'Bình thường',
-            quantity: (order as OrderTab1)?.quantity || 0,
-            reported_amount: order.reported_amount || 0,
-            deposit_amount: (order as OrderTab1)?.deposit_amount || 0,
-            shipping_fee: (order as OrderTab1)?.shipping_fee || (order as OrderTab2)?.shipping_fee || 0,
-            domestic_shipping_fee: (order as OrderTab1)?.domestic_shipping_fee || (order as OrderTab2)?.domestic_shipping_fee || 0,
-            remaining_amount: (order as OrderTab1)?.remaining_amount || 0,
-            capital: (order as OrderTab2)?.capital || 0,
-            profit: (order as OrderTab2)?.profit || 0,
+            quantity: (order as OrderTab1)?.quantity ?? 0,
+            deposit_amount: (order as OrderTab1)?.deposit_amount ?? 0,
+            remaining_amount: (order as OrderTab1)?.remaining_amount ?? 0,
+            capital: (order as OrderTab2)?.capital ?? 0,
+            profit: (order as OrderTab2)?.profit ?? 0,
+            reported_amount: order.reported_amount ?? 0,
+            shipping_fee: (order as OrderTab1)?.shipping_fee ?? (order as OrderTab2)?.shipping_fee ?? 0,
+            domestic_shipping_fee: (order as OrderTab1)?.domestic_shipping_fee ?? (order as OrderTab2)?.domestic_shipping_fee ?? 0,
           });
           setImageUrl(order.product_image || '');
+        } finally {
+          setIsFetchingData(false);
         }
       };
       
@@ -347,8 +364,15 @@ export default function OrderModal({ isOpen, onClose, onSave, order, type }: Ord
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl p-6 relative my-8 max-h-[90vh] overflow-y-auto">
+    <>
+      {(isFetchingData || isSubmitting) && (
+        <Loading 
+          message={isFetchingData ? 'Đang tải dữ liệu...' : 'Đang lưu...'} 
+          fullScreen 
+        />
+      )}
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4 overflow-y-auto">
+        <div className={`bg-white rounded-lg shadow-xl w-full max-w-3xl p-6 relative my-8 max-h-[90vh] overflow-y-auto ${(isFetchingData || isSubmitting) ? 'opacity-50 pointer-events-none' : ''}`}>
         <button
           onClick={onClose}
           className="absolute top-4 right-4 text-gray-500 hover:text-gray-700 z-10"
@@ -626,7 +650,8 @@ export default function OrderModal({ isOpen, onClose, onSave, order, type }: Ord
           onClose={() => setShowCustomerModal(false)}
           onSelect={handleSelectCustomer}
         />
+        </div>
       </div>
-    </div>
+    </>
   );
 }
