@@ -9,9 +9,9 @@ import BuyerInfoModal from '@/components/BuyerInfoModal';
 import ColumnToggle from '@/components/ColumnToggle';
 import LoginModal from '@/components/LoginModal';
 import Loading from '@/components/Loading';
-import { OrderTab1, OrderTab2, BuyerInfo } from '@/types';
+import { OrderTab1, OrderTab2, BuyerInfo, InventoryItem } from '@/types';
 
-type TabType = 'tab1' | 'tab2' | 'tab3' | 'tab4';
+type TabType = 'tab1' | 'tab2' | 'tab3' | 'tab4' | 'tab5';
 
 export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -21,6 +21,7 @@ export default function Home() {
   const logoInputRef = useRef<HTMLInputElement>(null);
   const [ordersTab1, setOrdersTab1] = useState<OrderTab1[]>([]);
   const [ordersTab2, setOrdersTab2] = useState<OrderTab2[]>([]);
+  const [ordersInventory, setOrdersInventory] = useState<InventoryItem[]>([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [priorityFilter, setPriorityFilter] = useState('');
@@ -130,7 +131,7 @@ export default function Home() {
     const month = now.getMonth();
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
-    
+
     // Format date as YYYY-MM-DD in local timezone
     const formatDate = (date: Date) => {
       const y = date.getFullYear();
@@ -138,13 +139,13 @@ export default function Home() {
       const d = String(date.getDate()).padStart(2, '0');
       return `${y}-${m}-${d}`;
     };
-    
+
     setStartDate(formatDate(firstDay));
     setEndDate(formatDate(lastDay));
   }, []);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isBuyerModalOpen, setIsBuyerModalOpen] = useState(false);
-  const [selectedOrder, setSelectedOrder] = useState<OrderTab1 | OrderTab2 | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<OrderTab1 | OrderTab2 | InventoryItem | null>(null);
   const [buyerInfo, setBuyerInfo] = useState<BuyerInfo | null>(null);
   const [visibleColumnsTab1, setVisibleColumnsTab1] = useState<{ [key: string]: boolean }>({
     stt: true,
@@ -174,6 +175,20 @@ export default function Home() {
     status: true,
     priority: true,
   });
+  const [visibleColumnsInventory, setVisibleColumnsInventory] = useState<{ [key: string]: boolean }>({
+    stt: true,
+    product_image: true,
+    order_code: true,
+    quantity: true,
+    reported_amount: true,
+    capital: true,
+    profit: true,
+    shipping_fee: true,
+    domestic_shipping_fee: true,
+    status: true,
+    priority: true,
+    note: true,
+  });
 
   const fetchOrders = async () => {
     setIsLoading(true);
@@ -182,7 +197,7 @@ export default function Home() {
       if (search) params.append('search', search);
       if (statusFilter) params.append('status', statusFilter);
       if (priorityFilter) params.append('priority', priorityFilter);
-      
+
       // Add date filter - always use custom with startDate and endDate for month
       if (datePeriod === 'month' || datePeriod === 'custom') {
         if (startDate && endDate) {
@@ -194,16 +209,19 @@ export default function Home() {
         params.append('period', datePeriod);
       }
 
-      const [res1, res2] = await Promise.all([
+      const [res1, res2, resInventory] = await Promise.all([
         fetch(`/api/orders/tab1?${params.toString()}`),
         fetch(`/api/orders/tab2?${params.toString()}`),
+        fetch(`/api/orders/inventory?${params.toString()}`),
       ]);
 
       const data1 = await res1.json();
       const data2 = await res2.json();
+      const dataInventory = await resInventory.json();
 
       setOrdersTab1(data1);
       setOrdersTab2(data2);
+      setOrdersInventory(dataInventory);
     } catch (error) {
       console.error('Error fetching orders:', error);
     } finally {
@@ -220,24 +238,28 @@ export default function Home() {
 
   // Calculate paginated orders
   const getPaginatedOrders = () => {
-    const orders = activeTab === 'tab1' ? ordersTab1 : ordersTab2;
+    let orders: any[] = [];
+    if (activeTab === 'tab1') orders = ordersTab1;
+    else if (activeTab === 'tab2') orders = ordersTab2;
+    else if (activeTab === 'tab5') orders = ordersInventory;
+
     const startIndex = (currentPage - 1) * pageSize;
     const endIndex = startIndex + pageSize;
     return orders.slice(startIndex, endIndex);
   };
 
   const totalPages = Math.ceil(
-    ((activeTab === 'tab1' ? ordersTab1 : ordersTab2).length || 0) / pageSize
+    ((activeTab === 'tab1' ? ordersTab1 : activeTab === 'tab2' ? ordersTab2 : activeTab === 'tab5' ? ordersInventory : []).length || 0) / pageSize
   );
 
-  const totalOrders = activeTab === 'tab1' ? ordersTab1.length : ordersTab2.length;
+  const totalOrders = activeTab === 'tab1' ? ordersTab1.length : activeTab === 'tab2' ? ordersTab2.length : activeTab === 'tab5' ? ordersInventory.length : 0;
 
   const handleAdd = () => {
     setSelectedOrder(null);
     setIsModalOpen(true);
   };
 
-  const handleEdit = (order: OrderTab1 | OrderTab2) => {
+  const handleEdit = (order: OrderTab1 | OrderTab2 | InventoryItem) => {
     setSelectedOrder(order);
     setIsModalOpen(true);
   };
@@ -247,10 +269,17 @@ export default function Home() {
 
     setIsDeleting(true);
     try {
+      if (activeTab === 'tab5') {
+        // Delete inventory item only
+        await fetch(`/api/orders/inventory?id=${id}`, { method: 'DELETE' });
+        await fetchOrders();
+        return;
+      }
+
       // Get order_code from current state
       const currentOrders = activeTab === 'tab1' ? ordersTab1 : ordersTab2;
       const orderToDelete = currentOrders.find((o) => o.id === id);
-      
+
       if (!orderToDelete) {
         alert('Không tìm thấy đơn hàng');
         return;
@@ -285,16 +314,16 @@ export default function Home() {
     }
   };
 
-  const handleSave = async (data: any) => {
+  const handleSave = async (data: any, isSell: boolean = false) => {
     // Prevent duplicate submission
     if (isSavingRef.current || isSaving) {
       console.log('Save already in progress, ignoring duplicate call');
       return;
     }
-    
+
     isSavingRef.current = true;
     setIsSaving(true);
-    
+
     try {
       // Save/update customer information first (for both create and edit)
       if (data.buyer_name && data.buyer_name.trim()) {
@@ -302,18 +331,18 @@ export default function Home() {
           // Get all customers to check for exact match
           const allCustomersRes = await fetch('/api/customers');
           const allCustomers = await allCustomersRes.json();
-          
+
           // Check if customer exists by exact phone match first, then by exact name match
           let existingCustomer = null;
           if (data.buyer_phone && data.buyer_phone.trim()) {
-            existingCustomer = allCustomers.find((c: any) => 
+            existingCustomer = allCustomers.find((c: any) =>
               c.phone && c.phone.trim() === data.buyer_phone.trim()
             );
           }
-          
+
           // If not found by phone, try to find by exact name
           if (!existingCustomer) {
-            existingCustomer = allCustomers.find((c: any) => 
+            existingCustomer = allCustomers.find((c: any) =>
               c.name && c.name.trim() === data.buyer_name.trim()
             );
           }
@@ -331,11 +360,11 @@ export default function Home() {
             });
           } else {
             // Update existing customer if any information is different
-            const needsUpdate = 
+            const needsUpdate =
               existingCustomer.name !== data.buyer_name.trim() ||
               (data.buyer_phone && existingCustomer.phone !== data.buyer_phone.trim()) ||
               (data.buyer_address && existingCustomer.address !== data.buyer_address.trim());
-            
+
             if (needsUpdate) {
               await fetch('/api/customers', {
                 method: 'PUT',
@@ -375,6 +404,124 @@ export default function Home() {
         priority: data.priority,
       };
 
+      // Handle Inventory Save/Update
+      if (activeTab === 'tab5' && !isSell) {
+        const inventoryData = {
+          id: data.id,
+          product_image: data.product_image,
+          order_code: data.order_code,
+          quantity: data.quantity,
+          capital: data.capital,
+          reported_amount: data.reported_amount,
+          profit: data.profit,
+          shipping_fee: data.shipping_fee,
+          domestic_shipping_fee: data.domestic_shipping_fee,
+          status: data.status,
+          priority: data.priority,
+          note: data.note,
+          sync_id: data.sync_id || crypto.randomUUID(), // Ensure sync_id exists
+        };
+
+        const method = data.id ? 'PUT' : 'POST';
+        const response = await fetch('/api/orders/inventory', {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(inventoryData),
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to save inventory item');
+        }
+
+        setIsModalOpen(false);
+        setSelectedOrder(null);
+        fetchOrders();
+        return;
+      }
+
+      // Handle "Sell from Inventory" flow
+      if (activeTab === 'tab5' && isSell) {
+        // 1. Create orders in Tab 1 & Tab 2 (similar to regular create)
+        // 2. Delete item from Inventory
+
+        // Use sync_id from inventory item if exists, else create new one
+        const sharedSyncId = data.sync_id || crypto.randomUUID();
+
+        // Prepare data for tab1
+        const tab1Data: any = {
+          ...commonFields,
+          quantity: data.quantity || 0,
+          deposit_amount: data.deposit_amount || 0,
+          remaining_amount: data.remaining_amount || 0,
+          sync_id: sharedSyncId,
+        };
+
+        // Prepare data for tab2
+        const tab2Data: any = {
+          ...commonFields,
+          capital: data.capital || 0,
+          profit: data.profit || 0,
+          sync_id: sharedSyncId,
+        };
+
+        const [res1, res2] = await Promise.all([
+          fetch('/api/orders/tab1', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(tab1Data),
+          }),
+          fetch('/api/orders/tab2', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(tab2Data),
+          }),
+        ]);
+
+        if (!res1.ok || !res2.ok) {
+          throw new Error('Failed to create orders from inventory');
+        }
+
+        // Update Inventory quantity or Delete if fully sold
+        if (data.id && selectedOrder) {
+          const originalQuantity = (selectedOrder as InventoryItem).quantity || 0;
+          const soldQuantity = data.quantity || 0;
+
+          if (soldQuantity < originalQuantity) {
+            // Partial sale - update remaining quantity
+            await fetch('/api/orders/inventory', {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                id: data.id,
+                quantity: originalQuantity - soldQuantity,
+                // Keep other fields same
+                priority: (selectedOrder as InventoryItem).priority,
+                status: (selectedOrder as InventoryItem).status,
+                note: (selectedOrder as InventoryItem).note,
+                // Preserve common fields (use current form data)
+                order_code: data.order_code,
+                product_image: data.product_image,
+                // Preserve financial fields
+                capital: (selectedOrder as InventoryItem).capital,
+                reported_amount: (selectedOrder as InventoryItem).reported_amount,
+                profit: (selectedOrder as InventoryItem).profit,
+                shipping_fee: (selectedOrder as InventoryItem).shipping_fee,
+                domestic_shipping_fee: (selectedOrder as InventoryItem).domestic_shipping_fee,
+              }),
+            });
+          } else {
+            // Full sale - delete item
+            await fetch(`/api/orders/inventory?id=${data.id}`, { method: 'DELETE' });
+          }
+        }
+
+        setIsModalOpen(false);
+        setSelectedOrder(null);
+        fetchOrders();
+        setActiveTab('tab1'); // Switch to Customer tab to show new order
+        return;
+      }
+
       // If editing, find and update both tabs
       if (data.id) {
         // Get current order to get sync_id
@@ -385,10 +532,10 @@ export default function Home() {
         // Find corresponding order in the other tab
         const otherTabEndpoint = activeTab === 'tab1' ? '/api/orders/tab2' : '/api/orders/tab1';
         const otherTabOrders = activeTab === 'tab1' ? ordersTab2 : ordersTab1;
-        
+
         // Try to find by sync_id first (preferred method)
         let otherTabOrder = syncId ? otherTabOrders.find((o: any) => o.sync_id === syncId) : null;
-        
+
         // Fallback: If not found by sync_id and order_code exists, try to find by order_code
         // This handles existing data that might not have been linked yet
         if (!otherTabOrder && data.order_code) {
@@ -407,7 +554,7 @@ export default function Home() {
 
         // Update both tabs
         const updatePromises = [];
-        
+
         // Update current tab with full data (include sync_id to maintain sync)
         const currentEndpoint = activeTab === 'tab1' ? '/api/orders/tab1' : '/api/orders/tab2';
         const currentTabData = { ...data };
@@ -432,7 +579,7 @@ export default function Home() {
           // Prepare sync data - sync all common fields, keep tab-specific fields from existing order
           // Use sync_id from current order to link them (or create new one if neither has it)
           const finalSyncId = syncId || otherTabOrder.sync_id || crypto.randomUUID();
-          
+
           const syncData: any = {
             id: otherTabOrder.id,
             ...commonFields,
@@ -469,7 +616,7 @@ export default function Home() {
             ...commonFields,
             sync_id: syncId || crypto.randomUUID(), // Use existing sync_id or create new one
           };
-          
+
           // Set default values for tab-specific fields
           if (activeTab === 'tab1') {
             // Creating in tab2, set default capital and profit
@@ -565,6 +712,11 @@ export default function Home() {
         ...prev,
         [key]: !prev[key],
       }));
+    } else if (activeTab === 'tab5') {
+      setVisibleColumnsInventory((prev) => ({
+        ...prev,
+        [key]: !prev[key],
+      }));
     } else {
       setVisibleColumnsTab2((prev) => ({
         ...prev,
@@ -609,7 +761,7 @@ export default function Home() {
 
       const data = await response.json();
       const newLogoUrl = data.url;
-      
+
       setLogoUrl(newLogoUrl);
       localStorage.setItem('linChengLogo', newLogoUrl);
     } catch (error) {
@@ -643,6 +795,24 @@ export default function Home() {
       ].map((col) => ({
         ...col,
         visible: visibleColumnsTab1[col.key] !== false,
+      }));
+    } else if (activeTab === 'tab5') {
+      return [
+        { key: 'stt', label: 'STT' },
+        { key: 'product_image', label: 'Ảnh' },
+        { key: 'order_code', label: 'Mã vận đơn' },
+        { key: 'quantity', label: 'Số lượng' },
+        { key: 'reported_amount', label: 'Tiền báo khách' },
+        { key: 'capital', label: 'Vốn' },
+        { key: 'profit', label: 'Lãi' },
+        { key: 'shipping_fee', label: 'Ship VN' },
+        { key: 'domestic_shipping_fee', label: 'Ship NĐ' },
+        { key: 'status', label: 'Trạng thái' },
+        { key: 'priority', label: 'Độ ưu tiên' },
+        { key: 'note', label: 'Ghi chú' },
+      ].map((col) => ({
+        ...col,
+        visible: visibleColumnsInventory[col.key] !== false,
       }));
     } else {
       return [
@@ -683,9 +853,8 @@ export default function Home() {
             />
             <div
               onClick={handleLogoClick}
-              className={`w-12 h-12 rounded-lg flex items-center justify-center shadow-lg cursor-pointer transition-opacity hover:opacity-80 overflow-hidden ${
-                !logoUrl && 'bg-gradient-to-br from-pink-500 to-rose-500'
-              }`}
+              className={`w-12 h-12 rounded-lg flex items-center justify-center shadow-lg cursor-pointer transition-opacity hover:opacity-80 overflow-hidden ${!logoUrl && 'bg-gradient-to-br from-pink-500 to-rose-500'
+                }`}
               title="Click để đổi logo"
             >
               {logoUrl ? (
@@ -715,44 +884,49 @@ export default function Home() {
           <div className="flex flex-wrap gap-2 border-b">
             <button
               onClick={() => setActiveTab('tab1')}
-              className={`px-4 py-2 font-medium transition ${
-                activeTab === 'tab1'
-                  ? 'border-b-2 border-pink-500 text-pink-600'
-                  : 'text-gray-600 hover:text-pink-600'
-              }`}
+              className={`px-4 py-2 font-medium transition ${activeTab === 'tab1'
+                ? 'border-b-2 border-pink-500 text-pink-600'
+                : 'text-gray-600 hover:text-pink-600'
+                }`}
             >
               Khách Hàng
             </button>
             <button
               onClick={() => setActiveTab('tab2')}
-              className={`px-4 py-2 font-medium transition ${
-                activeTab === 'tab2'
-                  ? 'border-b-2 border-pink-500 text-pink-600'
-                  : 'text-gray-600 hover:text-pink-600'
-              }`}
+              className={`px-4 py-2 font-medium transition ${activeTab === 'tab2'
+                ? 'border-b-2 border-pink-500 text-pink-600'
+                : 'text-gray-600 hover:text-pink-600'
+                }`}
             >
               Shop
             </button>
             <button
               onClick={() => setActiveTab('tab3')}
-              className={`px-4 py-2 font-medium transition ${
-                activeTab === 'tab3'
-                  ? 'border-b-2 border-pink-500 text-pink-600'
-                  : 'text-gray-600 hover:text-pink-600'
-              }`}
+              className={`px-4 py-2 font-medium transition ${activeTab === 'tab3'
+                ? 'border-b-2 border-pink-500 text-pink-600'
+                : 'text-gray-600 hover:text-pink-600'
+                }`}
             >
               <BarChart3 className="inline mr-1" size={18} />
               Thống kê
             </button>
             <button
               onClick={() => setActiveTab('tab4')}
-              className={`px-4 py-2 font-medium transition ${
-                activeTab === 'tab4'
-                  ? 'border-b-2 border-pink-500 text-pink-600'
-                  : 'text-gray-600 hover:text-pink-600'
-              }`}
+              className={`px-4 py-2 font-medium transition ${activeTab === 'tab4'
+                ? 'border-b-2 border-pink-500 text-pink-600'
+                : 'text-gray-600 hover:text-pink-600'
+                }`}
             >
               Phóng sinh
+            </button>
+            <button
+              onClick={() => setActiveTab('tab5')}
+              className={`px-4 py-2 font-medium transition ${activeTab === 'tab5'
+                ? 'border-b-2 border-pink-500 text-pink-600'
+                : 'text-gray-600 hover:text-pink-600'
+                }`}
+            >
+              Tồn kho
             </button>
           </div>
         </div>
@@ -766,13 +940,23 @@ export default function Home() {
         ) : (
           <>
             <div className="flex flex-wrap gap-2 mb-4 items-center justify-between">
-              <button
-                onClick={handleAdd}
-                className="bg-pink-500 text-white px-4 py-2 rounded-lg hover:bg-pink-600 transition flex items-center gap-2"
-              >
-                <Plus size={20} />
-                Thêm đơn hàng
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleAdd}
+                  className="bg-pink-500 text-white px-4 py-2 rounded-lg hover:bg-pink-600 transition flex items-center gap-2"
+                >
+                  <Plus size={20} />
+                  {activeTab === 'tab5' ? 'Thêm hàng tồn kho' : 'Thêm đơn hàng'}
+                </button>
+                {activeTab !== 'tab5' && (
+                  <button
+                    onClick={() => setActiveTab('tab5')}
+                    className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition flex items-center gap-2"
+                  >
+                    Khách mua hàng tồn kho
+                  </button>
+                )}
+              </div>
               <ColumnToggle
                 columns={getColumnConfig()}
                 onToggle={toggleColumn}
@@ -802,7 +986,7 @@ export default function Home() {
                 const month = now.getMonth();
                 const firstDay = new Date(year, month, 1);
                 const lastDay = new Date(year, month + 1, 0);
-                
+
                 // Format date as YYYY-MM-DD in local timezone
                 const formatDate = (date: Date) => {
                   const y = date.getFullYear();
@@ -810,7 +994,7 @@ export default function Home() {
                   const d = String(date.getDate()).padStart(2, '0');
                   return `${y}-${m}-${d}`;
                 };
-                
+
                 setStartDate(formatDate(firstDay));
                 setEndDate(formatDate(lastDay));
               }}
@@ -821,11 +1005,17 @@ export default function Home() {
             ) : (
               <OrderTable
                 orders={getPaginatedOrders()}
-                type={activeTab}
+                type={activeTab === 'tab5' ? 'inventory' : activeTab as 'tab1' | 'tab2'}
                 onEdit={handleEdit}
                 onDelete={handleDelete}
                 onBuyerClick={handleBuyerClick}
-                visibleColumns={activeTab === 'tab1' ? visibleColumnsTab1 : visibleColumnsTab2}
+                visibleColumns={
+                  activeTab === 'tab1'
+                    ? visibleColumnsTab1
+                    : activeTab === 'tab5'
+                      ? visibleColumnsInventory
+                      : visibleColumnsTab2
+                }
                 pageSize={pageSize}
               />
             )}
@@ -899,7 +1089,7 @@ export default function Home() {
         }}
         onSave={handleSave}
         order={selectedOrder}
-        type={activeTab === 'tab3' || activeTab === 'tab4' ? 'tab1' : activeTab}
+        type={activeTab === 'tab5' ? 'inventory' : (activeTab === 'tab1' || activeTab === 'tab2' ? activeTab : 'tab1')}
       />
 
       <BuyerInfoModal
@@ -1048,7 +1238,7 @@ function PhongSinhTab() {
     const month = now.getMonth();
     const firstDay = new Date(year, month, 1);
     const lastDay = new Date(year, month + 1, 0);
-    
+
     // Format date as YYYY-MM-DD in local timezone
     const formatDate = (date: Date) => {
       const y = date.getFullYear();
@@ -1056,14 +1246,14 @@ function PhongSinhTab() {
       const d = String(date.getDate()).padStart(2, '0');
       return `${y}-${m}-${d}`;
     };
-    
+
     setStartDate(formatDate(firstDay));
     setEndDate(formatDate(lastDay));
   }, []);
 
   const fetchStats = () => {
     if (!startDate || !endDate) return;
-    
+
     setLoading(true);
     const params = new URLSearchParams();
     if (period === 'custom' || period === 'month') {
@@ -1133,7 +1323,7 @@ function PhongSinhTab() {
                 const month = now.getMonth();
                 const firstDay = new Date(year, month, 1);
                 const lastDay = new Date(year, month + 1, 0);
-                
+
                 // Format date as YYYY-MM-DD in local timezone
                 const formatDate = (date: Date) => {
                   const y = date.getFullYear();
@@ -1141,7 +1331,7 @@ function PhongSinhTab() {
                   const d = String(date.getDate()).padStart(2, '0');
                   return `${y}-${m}-${d}`;
                 };
-                
+
                 setStartDate(formatDate(firstDay));
                 setEndDate(formatDate(lastDay));
               }

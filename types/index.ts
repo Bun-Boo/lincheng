@@ -47,6 +47,24 @@ export interface OrderTab2 {
   created_at: string;
 }
 
+export interface InventoryItem {
+  id?: number;
+  stt: number;
+  product_image?: string;
+  order_code: string;
+  quantity: number;
+  capital: number;
+  reported_amount: number;
+  profit: number;
+  shipping_fee: number;
+  domestic_shipping_fee: number;
+  status: string;
+  priority: Priority;
+  note?: string;
+  sync_id?: string;
+  created_at: string;
+}
+
 export interface BuyerInfo {
   name: string;
   phone: string;
